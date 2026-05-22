@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saikou.tech — AI Automation Dashboard</title>
+<style>
+  :root {
+    --navy: #0d1b2a;
+    --blue: #1a3a5c;
+    --accent: #2563eb;
+    --accent2: #7c3aed;
+    --green: #059669;
+    --orange: #d97706;
+    --red: #dc2626;
+    --bg: #f0f4f8;
+    --card: #ffffff;
+    --text: #1e293b;
+    --muted: #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  header {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 100%);
+    color: white; padding: 28px 40px; display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.5px; }
+  header h1 span { color: #60a5fa; }
+  .header-meta { font-size: 0.8rem; opacity: 0.65; margin-top: 4px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .pipeline-banner {
+    background: linear-gradient(90deg, var(--accent2) 0%, var(--accent) 100%);
+    color: white; text-align: center; padding: 14px 20px; font-size: 0.95rem; font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .pipeline-banner a { color: #bfdbfe; text-decoration: none; margin-left: 12px; font-weight: 400; font-size: 0.85rem; }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 36px 24px; }
+
+  h2.section-title {
+    font-size: 1.05rem; font-weight: 700; color: var(--navy); margin-bottom: 20px;
+    text-transform: uppercase; letter-spacing: 1px; border-left: 4px solid var(--accent);
+    padding-left: 12px;
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; margin-bottom: 40px; }
+
+  .card {
+    background: var(--card); border-radius: 12px; padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;
+    display: flex; flex-direction: column; gap: 14px; transition: box-shadow 0.2s;
+  }
+  .card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
+
+  .card-header { display: flex; align-items: flex-start; gap: 14px; }
+  .card-icon { font-size: 2rem; flex-shrink: 0; }
+  .card-title { font-size: 1rem; font-weight: 700; color: var(--navy); line-height: 1.3; }
+  .card-subtitle { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+
+  .badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge-weekly { background: #dbeafe; color: #1d4ed8; }
+  .badge-ondemand { background: #d1fae5; color: #065f46; }
+  .badge-cli { background: #f3e8ff; color: #6b21a8; }
+  .badge-live { background: #fef3c7; color: #92400e; }
+
+  .trigger-row {
+    display: flex; align-items: center; gap: 8px; font-size: 0.78rem;
+    color: var(--muted); background: #f8fafc; border-radius: 6px; padding: 6px 10px;
+  }
+  .trigger-icon { font-size: 0.9rem; }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+    border-radius: 7px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    border: none; text-decoration: none; transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+  .btn-secondary { background: #f1f5f9; color: var(--blue); border: 1px solid #cbd5e1; }
+  .btn-secondary:hover { background: #e2e8f0; }
+  .btn-run { background: var(--green); color: white; }
+  .btn-run:hover { background: #047857; transform: translateY(-1px); }
+  .btn-danger { background: #fee2e2; color: var(--red); border: 1px solid #fca5a5; }
+  .btn-danger:hover { background: #fecaca; }
+
+  .wiring-section { background: var(--card); border-radius: 12px; padding: 28px; margin-bottom: 40px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .pipeline-flow { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-top: 20px; }
+  .flow-node {
+    background: linear-gradient(135deg, #eff6ff, #dbeafe); border: 2px solid #93c5fd;
+    border-radius: 10px; padding: 10px 16px; font-size: 0.82rem; font-weight: 600;
+    color: var(--blue); text-align: center; min-width: 120px;
+  }
+  .flow-node.parallel-group { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-color: #86efac; color: #166534; }
+  .flow-node.output { background: linear-gradient(135deg, #fdf4ff, #f3e8ff); border-color: #c4b5fd; color: #5b21b6; }
+  .flow-arrow { font-size: 1.2rem; color: var(--muted); padding: 0 4px; }
+  .parallel-stack { display: flex; flex-direction: column; gap: 6px; }
+
+  .triggers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 20px; }
+  .trigger-card {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 16px; display: flex; align-items: flex-start; gap: 12px;
+  }
+  .trigger-icon-lg { font-size: 1.6rem; flex-shrink: 0; }
+  .trigger-name { font-weight: 700; font-size: 0.88rem; color: var(--navy); }
+  .trigger-desc { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+  .trigger-cron { font-family: monospace; font-size: 0.75rem; background: #1e293b; color: #7dd3fc; padding: 2px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; }
+
+  footer { background: var(--navy); color: #94a3b8; text-align: center; padding: 20px; font-size: 0.78rem; }
+  footer a { color: #60a5fa; text-decoration: none; }
+
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:white; border-radius:14px; padding:28px; max-width:480px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
+  .modal h3 { font-size:1.1rem; margin-bottom:12px; color:var(--navy); }
+  .modal pre { background:#1e293b; color:#7dd3fc; padding:14px; border-radius:8px; font-size:0.8rem; overflow-x:auto; margin:12px 0; line-height:1.6; }
+  .modal-close { float:right; background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--muted); }
+
+  @media(max-width:600px){
+    header{flex-direction:column;gap:10px;text-align:center;}
+    .pipeline-flow{flex-direction:column;align-items:flex-start;}
+    .flow-arrow{transform:rotate(90deg);}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⚡ <span>Saikou.tech</span> AI Automation Hub</h1>
+    <div class="header-meta"><span class="status-dot"></span>6 autonomous agents · GitHub-triggered · Self-scheduling</div>
+  </div>
+  <div style="text-align:right">
+    <a href="https://github.com/SuperfastSimon/inspace-ai-automation" target="_blank"
+       style="color:#60a5fa;font-size:0.85rem;text-decoration:none;">
+      📦 View on GitHub →
+    </a>
+  </div>
+</header>
+
+<div class="pipeline-banner">
+  🚀 Genesis Pipeline is live — research any topic and get a full AI report emailed to you
+  <a href="#genesis">Jump to Pipeline ↓</a>
+</div>
+
+<main>
+
+  <!-- CONCEPTS GRID -->
+  <h2 class="section-title">Autonomous Agents</h2>
+  <div class="grid">
+
+    <!-- Concept 1 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🧠</div>
+        <div>
+          <div class="card-title">LLM Brand Entity Monitor</div>
+          <div class="card-subtitle">concept1_llm_brand_monitor</div>
+        </div>
+      </div>
+      <span class="badge badge-weekly">⏰ Daily 08:00</span>
+      <div class="trigger-row"><span class="trigger-icon">🔗</span>Claude + GPT-4o queried in parallel · Slack Block Kit digest</div>
+      <div class="trigger-row"><span class="trigger-icon">📊</span>Sentiment analysis · brand mention extraction · 5 prompts</div>
+      <div class="btn-row">
+        <button class="btn btn-run" onclick="showRunModal('concept1','python main.py --run-now')">▶ Run Now</button>
+        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept1_llm_brand_monitor" target="_blank">📁 Code</a>
+        <button class="btn btn-secondary" onclick="showEnvModal('concept1')">⚙️ Config</button>
+      </div>
+    </div>
+
+    <!-- Concept 2 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🏗️</div>
+        <div>
+          <div class="card-title">Structured Data Auto-Injector</div>
+          <div class="card-subtitle">concept2_structured_data_injector</div>
+        </div>
+      </div>
+      <span class="badge badge-cli">🖥️ CLI / On-demand</span>
+      <div class="trigger-row"><span class="trigger-icon">🔗</span>Scans sitemap → detects missing schema.org → injects JSON-LD</div>
+      <div class="trigger-row"><span class="trigger-icon">✅</span>Validates via schema.org validator · WordPress REST API</div>
+      <div class="btn-row">
+        <button class="btn btn-run" onclick="showRunModal('concept2','python main.py --sitemap https://yoursite.com/sitemap.xml --dry-run')">▶ Dry Run</button>
+        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept2_structured_data_injector" target="_blank">📁 Code</a>
+        <button class="btn btn-secondary" onclick="showEnvModal('concept2')">⚙️ Config</button>
+      </div>
+    </div>
+
+    <!-- Concept 3 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🔄</div>
+        <div>
+          <div class="card-title">Content Freshness Guardian</div>
+          <div class="card-subtitle">concept3_content_freshness</div>
+        </div>
+      </div>
+      <span class="badge badge-weekly">⏰ Weekly Mon 07:00</span>
+      <div class="trigger-row"><span class="trigger-icon">🔗</span>WordPress REST API · staleness scoring · priority ranking</div>
+      <div class="trigger-row"><span class="trigger-icon">📧</span>HTML email digest via Jinja2 + SMTP</div>
+      <div class="btn-row">
+        <button class="btn btn-run" onclick="showRunModal('concept3','python main.py --run-now --min-priority high')">▶ Run Now</button>
+        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept3_content_freshness" target="_blank">📁 Code</a>
+        <button class="btn btn-secondary" onclick="showEnvModal('concept3')">⚙️ Config</button>
+      </div>
+    </div>
+
+    <!-- Concept 4 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🕸️</div>
+        <div>
+          <div class="card-title">Internal Linking Intelligence</div>
+          <div class="card-subtitle">concept4_internal_linking</div>
+        </div>
+      </div>
+      <span class="badge badge-cli">🖥️ CLI / On-demand</span>
+      <div class="trigger-row"><span class="trigger-icon">🔗</span>Sitemap crawl → embeddings → cosine similarity → opportunities</div>
+      <div class="trigger-row"><span class="trigger-icon">📊</span>Google Sheets export · orphan detection · anchor generation</div>
+      <div class="btn-row">
+        <button class="btn btn-run" onclick="showRunModal('concept4','python main.py --sitemap https://yoursite.com/sitemap.xml --skip-anchors')">▶ Run Now</button>
+        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept4_internal_linking" target="_blank">📁 Code</a>
+        <button class="btn btn-secondary" onclick="showEnvModal('concept4')">⚙️ Config</button>
+      </div>
+    </div>
+
+    <!-- Concept 5 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🎯</div>
+        <div>
+          <div class="card-title">Competitor GEO Intelligence</div>
+          <div class="card-subtitle">concept5_competitor_geo</div>
+        </div>
+      </div>
+      <span class="badge badge-weekly">⏰ Weekly Fri 06:00</span>
+      <div class="trigger-row"><span class="trigger-icon">🔗</span>LLM visibility scoring · SQLite trend history · Markdown reports</div>
+      <div class="trigger-row"><span class="trigger-icon">📈</span>↑↓→ trend arrows · gap-to-leader analysis · 8-week history</div>
+      <div class="btn-row">
+        <button class="btn btn-run" onclick="showRunModal('concept5','python main.py --run-now')">▶ Run Now</button>
+        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept5_competitor_geo" target="_blank">📁 Code</a>
+        <button class="btn btn-secondary" onclick="showEnvModal('concept5')">⚙️ Config</button>
+      </div>
+    </div>
+
+    <!-- Genesis Pipeline -->
+    <div class="card" id="genesis" style="border-color:#7c3aed;border-width:2px;">
+      <div class="card-header">
+        <div class="card-icon">🚀</div>
+        <div>
+          <div class="card-title">Genesis Pipeline</div>
+          <div class="card-subtitle">genesis_pipeline · Single-file autonomous</div>
+        </div>
+      </div>
+      <span class="badge badge-live">⏰ Weekly Fri 06:00 + On-demand</span>
+      <div class="trigger-row"><span class="trigger-icon">🔗</span>Jina search → 3× parallel Sonnet → Opus HTML → SMTP</div>
+      <div class="trigger-row"><span class="trigger-icon">✅</span>Self-sufficient · no platform dependency · --dry-run safe</div>
+      <div class="btn-row">
+        <button class="btn btn-run" onclick="showRunModal('genesis','python genesis_pipeline.py --topic \"your topic\" --email you@example.com --dry-run')">▶ Dry Run</button>
+        <button class="btn btn-primary" onclick="showRunModal('genesis','python genesis_pipeline.py --topic \"your topic\" --email you@example.com')">📧 Run + Send</button>
+        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/genesis_pipeline" target="_blank">📁 Code</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- WIRING DIAGRAM -->
+  <h2 class="section-title">Genesis Pipeline — Live Wiring</h2>
+  <div class="wiring-section">
+    <p style="color:var(--muted);font-size:0.85rem;">End-to-end data flow — all stages execute automatically in sequence with 3 parallel LLM passes at the analysis stage.</p>
+    <div class="pipeline-flow" style="margin-top:24px;gap:6px;align-items:center;flex-wrap:wrap;">
+      <div class="flow-node">🎯<br><small>Topic Input</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">🌐<br><small>Jina Web Search</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="parallel-stack">
+        <div class="flow-node parallel-group">📝 Executive Summary<br><small>claude-sonnet-4-6</small></div>
+        <div class="flow-node parallel-group">💡 Opportunities<br><small>claude-sonnet-4-6</small></div>
+        <div class="flow-node parallel-group">📅 Action Plan<br><small>claude-sonnet-4-6</small></div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">🔗<br><small>Combine Results</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node output">🎨<br><small>HTML Formatter<br>claude-opus-4-7</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node output">📧<br><small>SMTP Send</small></div>
+    </div>
+  </div>
+
+  <!-- TRIGGERS -->
+  <h2 class="section-title">Scheduled Triggers</h2>
+  <div class="triggers-grid">
+    <div class="trigger-card">
+      <div class="trigger-icon-lg">⏰</div>
+      <div>
+        <div class="trigger-name">Brand Monitor — Daily</div>
+        <div class="trigger-desc">Queries Claude + GPT-4o, sends Slack digest</div>
+        <div class="trigger-cron">0 8 * * * (Amsterdam)</div>
+      </div>
+    </div>
+    <div class="trigger-card">
+      <div class="trigger-icon-lg">📅</div>
+      <div>
+        <div class="trigger-name">Content Guardian — Weekly</div>
+        <div class="trigger-desc">Scores all posts, emails freshness report</div>
+        <div class="trigger-cron">0 7 * * 1 (Monday)</div>
+      </div>
+    </div>
+    <div class="trigger-card">
+      <div class="trigger-icon-lg">🎯</div>
+      <div>
+        <div class="trigger-name">GEO Tracker — Weekly</div>
+        <div class="trigger-desc">LLM visibility snapshot + trend analysis</div>
+        <div class="trigger-cron">0 6 * * 5 (Friday)</div>
+      </div>
+    </div>
+    <div class="trigger-card">
+      <div class="trigger-icon-lg">🚀</div>
+      <div>
+        <div class="trigger-name">Genesis Pipeline — Weekly + On-demand</div>
+        <div class="trigger-desc">Full research + HTML report + email delivery</div>
+        <div class="trigger-cron">0 6 * * 5 + GitHub dispatch</div>
+      </div>
+    </div>
+    <div class="trigger-card">
+      <div class="trigger-icon-lg">⚡</div>
+      <div>
+        <div class="trigger-name">GitHub Actions CI</div>
+        <div class="trigger-desc">Push to main → lint + dry-run all agents</div>
+        <div class="trigger-cron">on: push, pull_request</div>
+      </div>
+    </div>
+    <div class="trigger-card">
+      <div class="trigger-icon-lg">🌐</div>
+      <div>
+        <div class="trigger-name">Manual Dispatch</div>
+        <div class="trigger-desc">Trigger any agent from GitHub Actions UI</div>
+        <div class="trigger-cron">on: workflow_dispatch</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Built by <a href="https://saikou.tech" target="_blank">Saikou.tech</a> · 
+  <a href="https://github.com/SuperfastSimon/inspace-ai-automation" target="_blank">GitHub</a> · 
+  6 autonomous AI automation concepts · InSpace Application 2026
+</footer>
+
+<!-- RUN MODAL -->
+<div class="modal-overlay" id="runModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('runModal')">✕</button>
+    <h3 id="runModalTitle">Run Agent</h3>
+    <p style="font-size:0.85rem;color:var(--muted);margin-bottom:8px;">Copy and run this command in your terminal after setting up <code>.env</code>:</p>
+    <pre id="runModalCmd"></pre>
+    <div style="display:flex;gap:8px;margin-top:4px;">
+      <button class="btn btn-primary" onclick="copyCmd()">📋 Copy Command</button>
+      <button class="btn btn-secondary" onclick="closeModal('runModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ENV MODAL -->
+<div class="modal-overlay" id="envModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('envModal')">✕</button>
+    <h3 id="envModalTitle">Configuration</h3>
+    <pre id="envModalContent"></pre>
+    <div style="display:flex;gap:8px;margin-top:4px;">
+      <a id="envGithubLink" class="btn btn-primary" href="#" target="_blank">📁 View .env.example on GitHub</a>
+      <button class="btn btn-secondary" onclick="closeModal('envModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ENV_CONFIGS = {
+  concept1: `ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_CHANNEL=#brand-monitor
+BRAND_NAME=Saikou.tech
+BRAND_DOMAIN=saikou.tech
+COMPETITORS=competitor1.com,competitor2.com`,
+  concept2: `ANTHROPIC_API_KEY=sk-ant-...
+WP_URL=https://yoursite.com
+WP_USER=admin
+WP_APP_PASSWORD=xxxx xxxx xxxx xxxx`,
+  concept3: `ANTHROPIC_API_KEY=sk-ant-...
+WP_URL=https://yoursite.com
+WP_USER=admin
+WP_APP_PASSWORD=xxxx xxxx xxxx xxxx
+SMTP_HOST=smtp.gmail.com
+SMTP_USER=you@gmail.com
+SMTP_PASS=app-password
+REPORT_EMAIL=you@example.com`,
+  concept4: `OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+# Optional: place service_account.json for Google Sheets export`,
+  concept5: `ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+CATEGORY=AI automation tools
+MY_BRAND=Saikou.tech
+COMPETITORS=make.com,zapier.com,n8n.io`,
+  genesis: `ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...        # optional fallback
+JINA_API_KEY=jina_...        # optional, improves rate limits
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASS=your-app-password
+SMTP_FROM=you@gmail.com`
+};
+
+const GITHUB_PATHS = {
+  concept1: 'concept1_llm_brand_monitor',
+  concept2: 'concept2_structured_data_injector',
+  concept3: 'concept3_content_freshness',
+  concept4: 'concept4_internal_linking',
+  concept5: 'concept5_competitor_geo',
+  genesis: 'genesis_pipeline'
+};
+
+const BASE = 'https://github.com/SuperfastSimon/inspace-ai-automation/blob/main/';
+
+function showRunModal(concept, cmd) {
+  document.getElementById('runModalTitle').textContent = 'Run — ' + GITHUB_PATHS[concept];
+  document.getElementById('runModalCmd').textContent = 'cd ' + GITHUB_PATHS[concept] + '\npip install -r requirements.txt\ncp .env.example .env  # fill in your keys\n\n' + cmd;
+  document.getElementById('runModal').classList.add('open');
+}
+
+function showEnvModal(concept) {
+  document.getElementById('envModalTitle').textContent = 'Config — ' + GITHUB_PATHS[concept] + '/.env';
+  document.getElementById('envModalContent').textContent = ENV_CONFIGS[concept];
+  document.getElementById('envGithubLink').href = BASE + GITHUB_PATHS[concept] + '/.env.example';
+  document.getElementById('envModal').classList.add('open');
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function copyCmd() {
+  const text = document.getElementById('runModalCmd').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => btn.textContent = '📋 Copy Command', 1500);
+  });
+}
+
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if(e.target === el) el.classList.remove('open'); });
+});
+</script>
+</body>
+</html>
