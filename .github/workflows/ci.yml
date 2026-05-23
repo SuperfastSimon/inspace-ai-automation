@@ -1,0 +1,56 @@
+name: CI — Lint & Dry-Run All Agents
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 5'   # Every Friday 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Genesis Pipeline topic'
+        default: 'AI automation trends 2026'
+      email:
+        description: 'Recipient email'
+        default: 'martin@saikou.tech'
+
+jobs:
+  lint:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check Python syntax — all concepts
+        run: |
+          for f in concept*/main.py genesis_pipeline/genesis_pipeline.py; do
+            echo "Checking $f..."
+            python -m py_compile "$f" && echo "  ✓ OK"
+          done
+
+  dry-run-genesis:
+    name: Genesis Pipeline Dry-Run
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r genesis_pipeline/requirements.txt
+      - name: Dry-run Genesis Pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+        run: |
+          cd genesis_pipeline
+          python genesis_pipeline.py \
+            --topic "${{ github.event.inputs.topic || 'AI automation trends 2026' }}" \
+            --email "${{ github.event.inputs.email || 'martin@saikou.tech' }}" \
+            --dry-run
