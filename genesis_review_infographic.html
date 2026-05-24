@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genesis Pipeline — Critical Review & Infographic</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e8e8e8; line-height: 1.6; }
+
+  .hero { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    padding: 48px 32px; text-align: center; border-bottom: 2px solid #e94560; }
+  .hero h1 { font-size: 2.4rem; font-weight: 800; color: #fff; letter-spacing: -1px; }
+  .hero h1 span { color: #e94560; }
+  .hero p { margin-top: 10px; color: #aaa; font-size: 1.05rem; }
+
+  .section { max-width: 960px; margin: 40px auto; padding: 0 24px; }
+  .section h2 { font-size: 1.4rem; font-weight: 700; color: #e94560; margin-bottom: 20px;
+    border-left: 4px solid #e94560; padding-left: 12px; }
+
+  /* PIPELINE FLOW */
+  .flow { display: flex; align-items: center; gap: 0; flex-wrap: wrap; justify-content: center; margin: 32px 0; }
+  .stage { background: #1a1a2e; border: 1px solid #333; border-radius: 10px; padding: 18px 16px;
+    text-align: center; min-width: 130px; max-width: 160px; position: relative; }
+  .stage .icon { font-size: 2rem; display: block; margin-bottom: 6px; }
+  .stage .label { font-size: 0.78rem; font-weight: 700; color: #e94560; text-transform: uppercase; letter-spacing: 1px; }
+  .stage .desc { font-size: 0.72rem; color: #999; margin-top: 4px; }
+  .arrow { font-size: 1.6rem; color: #e94560; padding: 0 6px; flex-shrink: 0; }
+
+  /* SCORECARD */
+  .scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 24px 0; }
+  .score-card { background: #111; border-radius: 10px; padding: 20px; border-top: 3px solid var(--c); }
+  .score-card .metric { font-size: 2.6rem; font-weight: 900; color: var(--c); }
+  .score-card .label { font-size: 0.8rem; color: #aaa; margin-top: 4px; }
+  .score-card .detail { font-size: 0.75rem; color: #666; margin-top: 6px; }
+  .green { --c: #4ade80; } .yellow { --c: #facc15; } .red { --c: #f87171; } .blue { --c: #60a5fa; }
+
+  /* STRENGTHS / WEAKNESSES */
+  .sw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 24px 0; }
+  @media(max-width: 620px) { .sw-grid { grid-template-columns: 1fr; } }
+  .sw-box { border-radius: 10px; padding: 20px; }
+  .sw-box.strengths { background: #0d2818; border: 1px solid #4ade80; }
+  .sw-box.weaknesses { background: #2a0d0d; border: 1px solid #f87171; }
+  .sw-box h3 { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
+  .sw-box.strengths h3 { color: #4ade80; }
+  .sw-box.weaknesses h3 { color: #f87171; }
+  .sw-box ul { list-style: none; padding: 0; }
+  .sw-box ul li { font-size: 0.82rem; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #ccc; }
+  .sw-box ul li::before { margin-right: 8px; }
+  .strengths ul li::before { content: "✓"; color: #4ade80; }
+  .weaknesses ul li::before { content: "✗"; color: #f87171; }
+
+  /* BULLETS */
+  .bullets { background: #111; border-radius: 10px; padding: 24px; margin: 24px 0; }
+  .bullets .bullet { display: flex; gap: 14px; align-items: flex-start; padding: 10px 0;
+    border-bottom: 1px solid #1e1e1e; }
+  .bullets .bullet:last-child { border-bottom: none; }
+  .bullets .bullet .num { background: #e94560; color: #fff; border-radius: 50%;
+    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-weight: 800; flex-shrink: 0; margin-top: 2px; }
+  .bullets .bullet .text strong { color: #fff; font-size: 0.9rem; display: block; }
+  .bullets .bullet .text span { color: #999; font-size: 0.8rem; }
+
+  /* SOLUTIONS TABLE */
+  .solutions { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.82rem; }
+  .solutions th { background: #1a1a2e; color: #e94560; text-align: left; padding: 12px 14px;
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; }
+  .solutions td { padding: 11px 14px; border-bottom: 1px solid #1e1e1e; vertical-align: top; }
+  .solutions tr:hover td { background: #111; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem;
+    font-weight: 700; margin-right: 4px; }
+  .tag.easy { background: #0d2818; color: #4ade80; border: 1px solid #4ade80; }
+  .tag.medium { background: #2a1f0d; color: #facc15; border: 1px solid #facc15; }
+  .tag.hard { background: #2a0d0d; color: #f87171; border: 1px solid #f87171; }
+
+  /* VERDICT */
+  .verdict { background: linear-gradient(135deg, #1a1a2e, #0f3460); border: 2px solid #e94560;
+    border-radius: 12px; padding: 28px; margin: 32px 0; text-align: center; }
+  .verdict .score-big { font-size: 4rem; font-weight: 900; color: #facc15; }
+  .verdict .score-label { color: #aaa; font-size: 0.9rem; margin-top: 4px; }
+  .verdict .verdict-text { margin-top: 16px; color: #ccc; font-size: 0.9rem; max-width: 600px; margin-left: auto; margin-right: auto; }
+
+  /* ROADMAP */
+  .roadmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; }
+  @media(max-width: 620px) { .roadmap { grid-template-columns: 1fr; } }
+  .phase { background: #111; border-radius: 10px; padding: 18px; border-top: 3px solid var(--pc); }
+  .phase .phase-label { font-size: 0.7rem; font-weight: 700; color: var(--pc); text-transform: uppercase; letter-spacing: 1px; }
+  .phase .phase-title { font-size: 1rem; font-weight: 700; color: #fff; margin: 6px 0 10px; }
+  .phase ul { list-style: none; padding: 0; }
+  .phase ul li { font-size: 0.78rem; color: #aaa; padding: 4px 0; }
+  .phase ul li::before { content: "→ "; color: var(--pc); }
+  .p1 { --pc: #4ade80; } .p2 { --pc: #60a5fa; } .p3 { --pc: #e94560; }
+
+  footer { text-align: center; padding: 32px; color: #555; font-size: 0.78rem; border-top: 1px solid #1e1e1e; margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Genesis Pipeline — <span>Critical Review</span></h1>
+  <p>Objective re-evaluation · Saikou.tech × InSpace · May 2026</p>
+</div>
+
+<!-- PIPELINE OVERVIEW -->
+<div class="section">
+  <h2>How It Works — 5-Stage Flow</h2>
+  <div class="flow">
+    <div class="stage">
+      <span class="icon">🔍</span>
+      <div class="label">Stage 1</div>
+      <div class="desc">Jina Web Research<br>3 sources scraped</div>
+    </div>
+    <div class="arrow">›</div>
+    <div class="stage">
+      <span class="icon">🧠</span>
+      <div class="label">Stage 2</div>
+      <div class="desc">LLM Analysis<br>3× parallel passes</div>
+    </div>
+    <div class="arrow">›</div>
+    <div class="stage">
+      <span class="icon">✍️</span>
+      <div class="label">Stage 3</div>
+      <div class="desc">Synthesis<br>Executive brief</div>
+    </div>
+    <div class="arrow">›</div>
+    <div class="stage">
+      <span class="icon">📊</span>
+      <div class="label">Stage 4</div>
+      <div class="desc">HTML Report<br>Formatted output</div>
+    </div>
+    <div class="arrow">›</div>
+    <div class="stage">
+      <span class="icon">📬</span>
+      <div class="label">Stage 5</div>
+      <div class="desc">SMTP Delivery<br>Weekly schedule</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCORECARD -->
+<div class="section">
+  <h2>Objective Scorecard</h2>
+  <div class="scorecard">
+    <div class="score-card green">
+      <div class="metric">8/10</div>
+      <div class="label">Code Quality</div>
+      <div class="detail">Clean, single-file, well-structured. Minor: no type hints throughout.</div>
+    </div>
+    <div class="score-card yellow">
+      <div class="metric">6/10</div>
+      <div class="label">Reliability</div>
+      <div class="detail">Tenacity retries help, but no persistent job queue or dead-letter handling.</div>
+    </div>
+    <div class="score-card yellow">
+      <div class="metric">6/10</div>
+      <div class="label">Business Value</div>
+      <div class="detail">Useful demo. Needs structured data output + action-tracking to drive real ROI.</div>
+    </div>
+    <div class="score-card green">
+      <div class="metric">9/10</div>
+      <div class="label">Extensibility</div>
+      <div class="detail">6-provider switching + compare mode is genuinely impressive architecture.</div>
+    </div>
+    <div class="score-card red">
+      <div class="metric">4/10</div>
+      <div class="label">Observability</div>
+      <div class="detail">stdout logs only. No metrics, no run history, no alerting on failure.</div>
+    </div>
+    <div class="score-card blue">
+      <div class="metric">7/10</div>
+      <div class="label">Demo Impact</div>
+      <div class="detail">Strong hiring signal. Shows full-stack AI thinking clearly.</div>
+    </div>
+  </div>
+</div>
+
+<!-- STRENGTHS / WEAKNESSES -->
+<div class="section">
+  <h2>Strengths vs. Critical Gaps</h2>
+  <div class="sw-grid">
+    <div class="sw-box strengths">
+      <h3>✓ What Works Well</h3>
+      <ul>
+        <li>Self-contained single file — zero infrastructure needed</li>
+        <li>6-provider LLM switching with unified dispatcher</li>
+        <li>Parallel 3-pass analysis via ThreadPoolExecutor</li>
+        <li>Compare mode: side-by-side HTML diff across providers</li>
+        <li>Exponential backoff retries (tenacity)</li>
+        <li>Jina Reader avoids scraping fragility</li>
+        <li>Friday 06:00 Amsterdam cron — real business cadence</li>
+        <li>GitHub Actions CI + dry-run validation</li>
+        <li>HTML email output is professional-grade</li>
+        <li>Dashboard with OAuth gate is polished</li>
+      </ul>
+    </div>
+    <div class="sw-box weaknesses">
+      <h3>✗ Critical Gaps</h3>
+      <ul>
+        <li>No persistent run history — can't audit what was sent</li>
+        <li>Research is 3 URLs only — shallow signal, bias risk</li>
+        <li>No feedback loop — AI never learns from past reports</li>
+        <li>Outputs are unstructured HTML — hard to query or act on</li>
+        <li>No deduplication — same insight repeated week after week</li>
+        <li>SMTP is fragile — silent failure if credentials rotate</li>
+        <li>No slack/webhook delivery fallback</li>
+        <li>Single-topic focus — doesn't scale to multiple clients</li>
+        <li>No cost tracking — running 6 LLMs in compare is $$$ blind</li>
+        <li>No way to rate/reject a report and retrain the prompt</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- CONCLUSIONS BULLETS -->
+<div class="section">
+  <h2>Conclusions — Bullet Points</h2>
+  <div class="bullets">
+    <div class="bullet">
+      <div class="num">1</div>
+      <div class="text">
+        <strong>It's a strong demo, not a production tool — yet.</strong>
+        <span>The architecture is sound. The gap is operational maturity: no persistence, no feedback, no observability.</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">2</div>
+      <div class="text">
+        <strong>The multi-provider compare mode is the most valuable unique feature.</strong>
+        <span>No other open-source pipeline does parallel LLM comparison on the same research corpus. That's a real differentiator.</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">3</div>
+      <div class="text">
+        <strong>Research depth is the biggest quality bottleneck.</strong>
+        <span>3 Jina URLs is thin. Adding SerpAPI (10+ results) + RSS feeds + Reddit would dramatically improve signal quality.</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">4</div>
+      <div class="text">
+        <strong>Unstructured HTML output kills downstream utility.</strong>
+        <span>Adding a structured JSON sidecar (same data, machine-readable) would unlock CRM integrations, trend charts, and action tracking for free.</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">5</div>
+      <div class="text">
+        <strong>No cost awareness is dangerous at scale.</strong>
+        <span>Running 6 providers in compare could hit $2–8 per run. Adding token counting + cost estimates per provider is essential before client use.</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">6</div>
+      <div class="text">
+        <strong>The weekly cadence is arbitrary without memory.</strong>
+        <span>A pipeline that doesn't know what it said last week will repeat itself. Even a simple SQLite run log would enable delta-reporting ("what's new this week").</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">7</div>
+      <div class="text">
+        <strong>Multi-tenant config would 10× the business value.</strong>
+        <span>Right now it's one topic, one recipient. Adding a YAML config for multiple clients/topics would make it billable as a SaaS product in 2 days.</span>
+      </div>
+    </div>
+    <div class="bullet">
+      <div class="num">8</div>
+      <div class="text">
+        <strong>The dashboard needs to close the loop.</strong>
+        <span>It shows triggers and wiring but has no way to view past reports, rate them, or adjust the prompt. A "last 5 runs" panel would make it a real ops tool.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SOLUTIONS TABLE -->
+<div class="section">
+  <h2>Solutions & Additions — Priority Matrix</h2>
+  <table class="solutions">
+    <thead>
+      <tr>
+        <th>Addition</th>
+        <th>Effort</th>
+        <th>Business Impact</th>
+        <th>How</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>SQLite run log</strong> — store topic, provider, cost, timestamp, report hash</td>
+        <td><span class="tag easy">Easy</span></td>
+        <td>Enables delta-reports, auditing, deduplication</td>
+        <td>stdlib sqlite3, 30 lines</td>
+      </tr>
+      <tr>
+        <td><strong>JSON sidecar output</strong> — machine-readable alongside HTML email</td>
+        <td><span class="tag easy">Easy</span></td>
+        <td>Unlocks CRM push, dashboards, trend charts</td>
+        <td>json.dumps() of parsed sections</td>
+      </tr>
+      <tr>
+        <td><strong>Token + cost tracking</strong> — per-provider cost estimate logged and shown</td>
+        <td><span class="tag easy">Easy</span></td>
+        <td>Essential for client billing and provider selection</td>
+        <td>Tiktoken + provider pricing dict</td>
+      </tr>
+      <tr>
+        <td><strong>Slack/webhook delivery</strong> — fallback or parallel to SMTP</td>
+        <td><span class="tag easy">Easy</span></td>
+        <td>SMTP is fragile; Slack reaches teams faster</td>
+        <td>requests.post() to webhook URL</td>
+      </tr>
+      <tr>
+        <td><strong>Richer research</strong> — SerpAPI + RSS + Reddit (PRAW) sources</td>
+        <td><span class="tag medium">Medium</span></td>
+        <td>Biggest quality improvement, reduces hallucination</td>
+        <td>3 additional source adapters</td>
+      </tr>
+      <tr>
+        <td><strong>Multi-tenant YAML config</strong> — N clients × M topics, one run</td>
+        <td><span class="tag medium">Medium</span></td>
+        <td>Turns demo into billable SaaS product</td>
+        <td>PyYAML config + loop in main()</td>
+      </tr>
+      <tr>
+        <td><strong>Dashboard run history panel</strong> — last 5 reports, rate/reject UI</td>
+        <td><span class="tag medium">Medium</span></td>
+        <td>Closes the ops loop, enables prompt refinement</td>
+        <td>Fetch SQLite log via GitHub Actions artifact</td>
+      </tr>
+      <tr>
+        <td><strong>Delta / "what's new" mode</strong> — diff this week vs last week</td>
+        <td><span class="tag medium">Medium</span></td>
+        <td>Solves repetition problem, increases reader value</td>
+        <td>Store embeddings, cosine diff on sections</td>
+      </tr>
+      <tr>
+        <td><strong>Prompt feedback loop</strong> — thumbs up/down → refine system prompt</td>
+        <td><span class="tag hard">Hard</span></td>
+        <td>Makes the pipeline self-improving over time</td>
+        <td>RLHF-lite: store ratings, rewrite prompt monthly</td>
+      </tr>
+      <tr>
+        <td><strong>Vector memory</strong> — semantic search over past reports</td>
+        <td><span class="tag hard">Hard</span></td>
+        <td>Enables "find all reports mentioning X" queries</td>
+        <td>ChromaDB or Qdrant + sentence-transformers</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ROADMAP -->
+<div class="section">
+  <h2>Recommended Roadmap</h2>
+  <div class="roadmap">
+    <div class="phase p1">
+      <div class="phase-label">Phase 1 · Week 1</div>
+      <div class="phase-title">Harden the Core</div>
+      <ul>
+        <li>SQLite run log</li>
+        <li>JSON sidecar output</li>
+        <li>Token + cost tracking</li>
+        <li>Slack webhook fallback</li>
+      </ul>
+    </div>
+    <div class="phase p2">
+      <div class="phase-label">Phase 2 · Week 2–3</div>
+      <div class="phase-title">Scale the Signal</div>
+      <ul>
+        <li>SerpAPI + RSS sources</li>
+        <li>Multi-tenant YAML config</li>
+        <li>Delta / "what's new" mode</li>
+        <li>Dashboard run history</li>
+      </ul>
+    </div>
+    <div class="phase p3">
+      <div class="phase-label">Phase 3 · Month 2</div>
+      <div class="phase-title">Self-Improving Pipeline</div>
+      <ul>
+        <li>Prompt feedback loop</li>
+        <li>Vector memory store</li>
+        <li>Auto provider selection (cost/quality optimizer)</li>
+        <li>Client portal</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- VERDICT -->
+<div class="section">
+  <div class="verdict">
+    <div class="score-big">6.7 / 10</div>
+    <div class="score-label">Overall Pipeline Maturity Score</div>
+    <div class="verdict-text">
+      The Genesis Pipeline is a <strong>technically impressive demo</strong> with smart architecture choices — 
+      multi-provider LLM switching and parallel analysis stand out. But it's still a 
+      <strong>prototype, not a product</strong>. The path from 6.7 to 9/10 is clear: 
+      add persistence, structured output, richer research sources, and a feedback loop. 
+      All achievable within 2–3 weeks of focused work.
+    </div>
+  </div>
+</div>
+
+<footer>
+  Genesis Pipeline Critical Review · Saikou.tech × InSpace · Generated May 2026
+</footer>
+
+</body>
+</html>
