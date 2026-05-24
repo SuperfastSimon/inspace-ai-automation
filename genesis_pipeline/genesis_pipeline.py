@@ -372,16 +372,156 @@ def main():
                         help="LLM provider (default: anthropic)")
     parser.add_argument("--dry-run",  action="store_true", help="Save HTML locally, skip email")
     parser.add_argument("--schedule", action="store_true", help="Run weekly Friday 06:00 Amsterdam")
+    parser.add_argument("--compare",  action="store_true", help="Run all configured providers in parallel, output side-by-side HTML report")
     args = parser.parse_args()
 
-    if not PROVIDER_KEYS[args.provider]:
+    if not args.compare and not PROVIDER_KEYS[args.provider]:
         logger.error(f"{ENV_VAR_NAMES[args.provider]} not set in .env")
         sys.exit(1)
 
-    if args.schedule:
+    if args.compare:
+        run_compare(args.topic, args.email, dry_run=args.dry_run)
+    elif args.schedule:
         run_scheduled(args.topic, args.email, args.provider)
     else:
         run_pipeline(args.topic, args.email, args.provider, dry_run=args.dry_run)
 
 if __name__ == "__main__":
     main()
+
+# ---------------------------------------------------------------------------
+# --compare mode: run all configured providers, side-by-side HTML report
+# ---------------------------------------------------------------------------
+
+def run_compare(topic: str, recipient_email: str, dry_run: bool = False):
+    """Run all providers that have API keys set, produce a side-by-side comparison report."""
+    active = {p: k for p, k in PROVIDER_KEYS.items() if k}
+    if not active:
+        logger.error("No API keys found in .env — set at least one provider key")
+        sys.exit(1)
+
+    logger.info(f"\n{'='*60}")
+    logger.info(f"COMPARE MODE | {len(active)} providers: {', '.join(active)}")
+    logger.info(f"Topic: {topic!r}")
+    logger.info(f"{'='*60}\n")
+
+    # Stage 1: Research once, shared across all providers
+    research = run_research(topic)
+
+    # Stage 2: Run all providers in parallel
+    provider_results: dict[str, AnalysisResult] = {}
+
+    def _run_provider(provider: str) -> tuple[str, AnalysisResult]:
+        logger.info(f"  → Starting {provider.upper()}...")
+        result = run_analysis(research, provider)
+        logger.info(f"  ✓ {provider.upper()} complete")
+        return provider, result
+
+    with ThreadPoolExecutor(max_workers=len(active)) as pool:
+        futures = {pool.submit(_run_provider, p): p for p in active}
+        for future in as_completed(futures):
+            try:
+                provider, result = future.result()
+                provider_results[provider] = result
+            except Exception as e:
+                p = futures[future]
+                logger.error(f"  ✗ {p} failed: {e}")
+                provider_results[p] = AnalysisResult(error=str(e))
+
+    # Stage 3: Build comparison HTML
+    html = _build_comparison_html(topic, provider_results, research.sources)
+
+    # Stage 4: Deliver
+    sent = send_email(recipient_email, f"[COMPARE] {topic}", html, dry_run=dry_run)
+    logger.info(f"\nCompare report done | providers={list(provider_results)} | sent={sent}\n")
+
+
+def _build_comparison_html(topic: str, results: dict[str, AnalysisResult], sources: list[str]) -> str:
+    PROVIDER_COLORS = {
+        "anthropic":  ("#e9d5ff", "#6b21a8", "🟣"),
+        "openai":     ("#d1fae5", "#065f46", "🟢"),
+        "google":     ("#fef9c3", "#854d0e", "🟡"),
+        "mistral":    ("#fee2e2", "#991b1b", "🔴"),
+        "groq":       ("#dbeafe", "#1e40af", "🔵"),
+        "openrouter": ("#fce7f3", "#9d174d", "🩷"),
+    }
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    provider_count = len(results)
+    col_width = max(int(100 / provider_count) - 1, 15)
+
+    # Header cards
+    header_cards = ""
+    for p, res in results.items():
+        bg, color, emoji = PROVIDER_COLORS.get(p, ("#f1f5f9", "#334155", "⚪"))
+        model_fast = PROVIDER_MODELS[p]["fast"]
+        status = "✓ OK" if not res.error else f"✗ {res.error[:40]}"
+        header_cards += f"""
+        <div style="background:{bg};border-radius:10px;padding:16px 18px;min-width:160px;flex:1;">
+          <div style="font-size:1.4rem;">{emoji}</div>
+          <div style="font-weight:700;color:{color};font-size:0.95rem;margin-top:4px;">{p.upper()}</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:2px;">{model_fast}</div>
+          <div style="font-size:0.75rem;margin-top:6px;color:{'#059669' if not res.error else '#dc2626'};">{status}</div>
+        </div>"""
+
+    # Section builder
+    def section(attr: str, title: str, icon: str) -> str:
+        cols = ""
+        for p, res in results.items():
+            bg, color, _ = PROVIDER_COLORS.get(p, ("#f1f5f9","#334155","⚪"))
+            content = getattr(res, attr, "") or f'<em style="color:#94a3b8">Error: {res.error}</em>'
+            # Convert **bold** and newlines to HTML
+            content = content.replace("**", "<strong>", 1)
+            import re
+            content = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', content)
+            content = content.replace("\n", "<br>")
+            cols += f"""
+            <td style="width:{col_width}%;vertical-align:top;padding:14px;border-right:1px solid #e2e8f0;">
+              <div style="font-size:0.7rem;font-weight:700;color:{color};text-transform:uppercase;
+                          letter-spacing:0.8px;margin-bottom:8px;padding-bottom:6px;
+                          border-bottom:2px solid {bg};">{p.upper()}</div>
+              <div style="font-size:0.82rem;line-height:1.6;color:#1e293b;">{content}</div>
+            </td>"""
+        return f"""
+        <div style="margin-bottom:32px;">
+          <h2 style="font-size:1rem;font-weight:700;color:#1a3a5c;margin-bottom:12px;
+                     padding-left:12px;border-left:4px solid #2563eb;">{icon} {title}</h2>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+              <tr style="background:#f8fafc;">{cols}</tr>
+            </table>
+          </div>
+        </div>"""
+
+    sources_html = ""
+    if sources:
+        src = "".join(f'<li style="font-size:0.78rem;color:#2563eb;margin:3px 0;"><a href="{s}" style="color:#2563eb;">{s}</a></li>' for s in sources if s)
+        sources_html = f'<div style="margin-top:24px;"><strong style="font-size:0.85rem;">Sources</strong><ul style="margin:8px 0 0 16px;">{src}</ul></div>'
+
+    import re
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Genesis Pipeline — Provider Comparison</title></head>
+<body style="font-family:Arial,Helvetica,sans-serif;background:#f0f4f8;margin:0;padding:20px;">
+<div style="max-width:1100px;margin:0 auto;">
+  <div style="background:linear-gradient(135deg,#0d1b2a,#1a3a5c);color:white;
+              border-radius:14px;padding:28px 32px;margin-bottom:24px;">
+    <div style="font-size:0.75rem;opacity:0.6;text-transform:uppercase;letter-spacing:1px;">Genesis Pipeline — Provider Comparison</div>
+    <h1 style="font-size:1.5rem;font-weight:700;margin:8px 0 4px;">{topic}</h1>
+    <div style="font-size:0.8rem;opacity:0.65;">{now} · {provider_count} providers compared</div>
+  </div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px;">
+    {header_cards}
+  </div>
+
+  {section('executive_summary', 'Executive Summary', '📋')}
+  {section('opportunities', 'Top 5 Opportunities', '💡')}
+  {section('action_plan', '90-Day Action Plan', '📅')}
+  {sources_html}
+
+  <div style="text-align:center;padding:20px;font-size:0.75rem;color:#94a3b8;margin-top:16px;">
+    Generated by Genesis Pipeline · Saikou.tech · {now}
+  </div>
+</div>
+</body></html>"""
