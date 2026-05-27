@@ -525,3 +525,237 @@ def _build_comparison_html(topic: str, results: dict[str, AnalysisResult], sourc
   </div>
 </div>
 </body></html>"""
+
+# ===========================================================================
+# PHASE 1 ENHANCEMENTS
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 1. SQLite run log
+# ---------------------------------------------------------------------------
+
+import sqlite3
+import hashlib
+import json as _json
+
+DB_PATH = Path("genesis_runs.db")
+
+def _db_connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS runs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_at       TEXT NOT NULL,
+            topic        TEXT NOT NULL,
+            provider     TEXT NOT NULL,
+            recipient    TEXT NOT NULL,
+            elapsed_s    REAL,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cost_usd     REAL DEFAULT 0.0,
+            report_hash  TEXT,
+            sent         INTEGER DEFAULT 0,
+            dry_run      INTEGER DEFAULT 0,
+            sidecar_path TEXT
+        )
+    """)
+    conn.commit()
+    return conn
+
+def log_run(*, topic: str, provider: str, recipient: str, elapsed_s: float,
+            input_tokens: int, output_tokens: int, cost_usd: float,
+            report_hash: str, sent: bool, dry_run: bool,
+            sidecar_path: str = "") -> int:
+    conn = _db_connect()
+    cur = conn.execute(
+        """INSERT INTO runs
+           (run_at, topic, provider, recipient, elapsed_s,
+            input_tokens, output_tokens, cost_usd,
+            report_hash, sent, dry_run, sidecar_path)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (datetime.now().isoformat(), topic, provider, recipient, round(elapsed_s, 2),
+         input_tokens, output_tokens, round(cost_usd, 6),
+         report_hash, int(sent), int(dry_run), sidecar_path)
+    )
+    conn.commit()
+    run_id = cur.lastrowid
+    conn.close()
+    logger.info(f"[DB] Run #{run_id} logged — cost=${cost_usd:.4f} tokens={input_tokens}in/{output_tokens}out")
+    return run_id
+
+def get_run_history(limit: int = 10) -> list[dict]:
+    if not DB_PATH.exists():
+        return []
+    conn = _db_connect()
+    rows = conn.execute(
+        "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    cols = [d[0] for d in conn.execute("SELECT * FROM runs LIMIT 0").description]
+    conn.close()
+    return [dict(zip(cols, r)) for r in rows]
+
+# ---------------------------------------------------------------------------
+# 2. Token counting + cost estimation
+# ---------------------------------------------------------------------------
+
+# Per-provider cost per 1M tokens (input, output) in USD — approximate
+COST_PER_1M = {
+    "anthropic":  {"input": 3.00,  "output": 15.00},   # claude-sonnet-4-6 / opus-4-7 avg
+    "openai":     {"input": 0.15,  "output": 0.60},    # gpt-4o-mini
+    "google":     {"input": 0.075, "output": 0.30},    # gemini-2.0-flash
+    "mistral":    {"input": 0.10,  "output": 0.30},    # mistral-small-latest
+    "groq":       {"input": 0.059, "output": 0.079},   # llama-3.3-70b on groq
+    "openrouter": {"input": 0.10,  "output": 0.30},    # meta-llama/llama-3.3-70b-instruct
+}
+
+class CostTracker:
+    """Thread-safe accumulator for token counts across pipeline stages."""
+    def __init__(self):
+        self._input = 0
+        self._output = 0
+        import threading
+        self._lock = threading.Lock()
+
+    def add(self, input_tokens: int, output_tokens: int):
+        with self._lock:
+            self._input  += input_tokens
+            self._output += output_tokens
+
+    def totals(self) -> tuple[int, int]:
+        return self._input, self._output
+
+    def cost(self, provider: str) -> float:
+        rates = COST_PER_1M.get(provider, {"input": 0.10, "output": 0.30})
+        return (self._input / 1_000_000 * rates["input"] +
+                self._output / 1_000_000 * rates["output"])
+
+    def summary(self, provider: str) -> str:
+        i, o = self.totals()
+        return f"tokens={i}in/{o}out  est_cost=${self.cost(provider):.4f}"
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token."""
+    return max(1, len(text) // 4)
+
+# ---------------------------------------------------------------------------
+# 3. JSON sidecar output
+# ---------------------------------------------------------------------------
+
+def write_json_sidecar(*, topic: str, provider: str, recipient: str,
+                       analysis: "AnalysisResult", sources: list[str],
+                       input_tokens: int, output_tokens: int,
+                       cost_usd: float, report_hash: str,
+                       run_at: str, filename: str) -> str:
+    data = {
+        "schema_version": "1.0",
+        "run_at":         run_at,
+        "topic":          topic,
+        "provider":       provider,
+        "recipient":      recipient,
+        "sources":        sources,
+        "analysis": {
+            "executive_summary": analysis.executive_summary,
+            "opportunities":     analysis.opportunities,
+            "action_plan":       analysis.action_plan,
+        },
+        "cost": {
+            "input_tokens":  input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd":      round(cost_usd, 6),
+            "provider":      provider,
+        },
+        "report_hash": report_hash,
+    }
+    path = Path(filename)
+    path.write_text(_json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.info(f"[Sidecar] JSON written → {path}")
+    return str(path)
+
+# ---------------------------------------------------------------------------
+# 4. Slack webhook delivery
+# ---------------------------------------------------------------------------
+
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+
+def send_slack(topic: str, provider: str, cost_summary: str,
+               executive_summary: str, report_path: str = "") -> bool:
+    if not SLACK_WEBHOOK_URL:
+        return False
+    text = (
+        f":newspaper: *Genesis Pipeline Report* — _{topic}_\n"
+        f">Provider: `{provider}` | {cost_summary}\n"
+        f">{executive_summary[:300]}{'...' if len(executive_summary) > 300 else ''}\n"
+        + (f">Report saved: `{report_path}`" if report_path else "")
+    )
+    try:
+        r = requests.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
+        r.raise_for_status()
+        logger.info("[Slack] Notification sent ✓")
+        return True
+    except Exception as e:
+        logger.warning(f"[Slack] Delivery failed: {e}")
+        return False
+
+# ---------------------------------------------------------------------------
+# Patched run_pipeline_v2 — drop-in replacement that adds all Phase 1 features
+# ---------------------------------------------------------------------------
+
+def run_pipeline(topic, recipient_email, provider="anthropic", dry_run=False):
+    """Orchestrator with SQLite logging, cost tracking, JSON sidecar, Slack."""
+    tracker = CostTracker()
+    run_at  = datetime.now().isoformat()
+
+    # Monkey-patch _call_llm to intercept token counts this run only
+    _orig_call_llm = globals().get("_call_llm_orig") or _call_llm
+    globals()["_call_llm_orig"] = _orig_call_llm  # keep original
+
+    run = PipelineRun(topic=topic, recipient_email=recipient_email, provider=provider)
+    logger.info(f"\n{'='*60}\nGenesis Pipeline v2 | provider={provider.upper()} | topic={topic!r}\n{'='*60}\n")
+
+    run.research    = run_research(topic)
+    run.analysis    = run_analysis(run.research, provider)
+    combined        = combine_results(topic, run.analysis, run.research.sources)
+    run.html_report = format_html_report(topic, combined, provider)
+
+    # Estimate tokens from text lengths (conservative; real counts need SDK usage objects)
+    research_tokens = _estimate_tokens(run.research.raw_content)
+    analysis_text   = " ".join([run.analysis.executive_summary,
+                                 run.analysis.opportunities,
+                                 run.analysis.action_plan])
+    out_tokens      = _estimate_tokens(analysis_text) + _estimate_tokens(run.html_report)
+    tracker.add(research_tokens + _estimate_tokens(combined), out_tokens)
+
+    input_tok, output_tok = tracker.totals()
+    cost_usd   = tracker.cost(provider)
+    cost_str   = tracker.summary(provider)
+    report_hash = hashlib.sha256(run.html_report.encode()).hexdigest()[:16]
+
+    run.sent = send_email(recipient_email, topic, run.html_report, dry_run)
+    elapsed  = (datetime.now() - run.started_at).total_seconds()
+
+    # JSON sidecar
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sidecar_path = write_json_sidecar(
+        topic=topic, provider=provider, recipient=recipient_email,
+        analysis=run.analysis, sources=run.research.sources,
+        input_tokens=input_tok, output_tokens=output_tok,
+        cost_usd=cost_usd, report_hash=report_hash,
+        run_at=run_at, filename=f"report_{ts}.json"
+    )
+
+    # SQLite log
+    log_run(
+        topic=topic, provider=provider, recipient=recipient_email,
+        elapsed_s=elapsed, input_tokens=input_tok, output_tokens=output_tok,
+        cost_usd=cost_usd, report_hash=report_hash,
+        sent=run.sent, dry_run=dry_run, sidecar_path=sidecar_path
+    )
+
+    # Slack notification
+    send_slack(topic, provider, cost_str,
+               run.analysis.executive_summary,
+               report_path=sidecar_path if dry_run else "")
+
+    logger.info(f"\nDone in {elapsed:.1f}s | {cost_str} | sent={run.sent}\n")
+    return run
+
