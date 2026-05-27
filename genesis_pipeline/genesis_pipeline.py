@@ -13,9 +13,14 @@ Usage:
 """
 
 import argparse
+import html as _html
+import ipaddress
 import logging
 import os
+import re
 import smtplib
+import socket
+import ssl
 import sys
 import textwrap
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,12 +31,14 @@ from email.mime.text import MIMEText
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
+import defusedxml.ElementTree as _ET
 import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 load_dotenv()
 
@@ -59,18 +66,15 @@ logger = _setup_logger()
 # Config
 # ---------------------------------------------------------------------------
 
-ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY", "")
-GOOGLE_API_KEY     = os.getenv("GOOGLE_API_KEY", "")
-MISTRAL_API_KEY    = os.getenv("MISTRAL_API_KEY", "")
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-JINA_API_KEY       = os.getenv("JINA_API_KEY", "")
-SMTP_HOST          = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT          = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER          = os.getenv("SMTP_USER", "")
-SMTP_PASS          = os.getenv("SMTP_PASS", "")
-SMTP_FROM          = os.getenv("SMTP_FROM", SMTP_USER)
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
+
+# Reject obviously invalid SMTP config at startup rather than at send time
+_VALID_SMTP_HOST = re.fullmatch(r"[A-Za-z0-9.\-]+", SMTP_HOST) is not None
+_VALID_SMTP_PORT = 1 <= SMTP_PORT <= 65535
 
 # Model IDs per provider — fast (parallel analysis) + powerful (HTML report)
 PROVIDER_MODELS = {
@@ -89,15 +93,6 @@ OPENAI_COMPAT_BASES = {
     "openrouter": "https://openrouter.ai/api/v1",
 }
 
-PROVIDER_KEYS = {
-    "anthropic":  ANTHROPIC_API_KEY,
-    "openai":     OPENAI_API_KEY,
-    "google":     GOOGLE_API_KEY,
-    "mistral":    MISTRAL_API_KEY,
-    "groq":       GROQ_API_KEY,
-    "openrouter": OPENROUTER_API_KEY,
-}
-
 ENV_VAR_NAMES = {
     "anthropic":  "ANTHROPIC_API_KEY",
     "openai":     "OPENAI_API_KEY",
@@ -106,6 +101,16 @@ ENV_VAR_NAMES = {
     "groq":       "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
+
+# ---------------------------------------------------------------------------
+# Provider key helper — reads live from env, never stale
+# ---------------------------------------------------------------------------
+
+def _get_key(provider: str) -> str:
+    return os.getenv(ENV_VAR_NAMES[provider], "")
+
+def _active_providers() -> dict[str, str]:
+    return {p: _get_key(p) for p in PROVIDER_MODELS if _get_key(p)}
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -122,7 +127,15 @@ class AnalysisResult:
     executive_summary: str = ""
     opportunities: str = ""
     action_plan: str = ""
-    error: Optional[str] = None
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def error(self) -> Optional[str]:
+        return self.errors[-1] if self.errors else None
+
+    @error.setter
+    def error(self, value: str):
+        self.errors.append(value)
 
 @dataclass
 class PipelineRun:
@@ -136,17 +149,82 @@ class PipelineRun:
     started_at: datetime = field(default_factory=datetime.now)
 
 # ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
+
+def _strip_header_injection(value: str) -> str:
+    """Remove CR/LF characters that could inject extra SMTP headers."""
+    return re.sub(r"[\r\n]", "", value)
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+def _validate_email(addr: str) -> bool:
+    return bool(_EMAIL_RE.fullmatch(addr))
+
+def _is_private_ip(hostname: str) -> bool:
+    """Return True if hostname resolves to a private/loopback address (SSRF guard)."""
+    try:
+        ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+    except Exception:
+        return False
+
+# Allowed RSS feed hostnames (allowlist — extend as needed)
+_RSS_ALLOWED_HOSTS: set[str] = {
+    "feeds.feedburner.com",
+    "www.wired.com",
+    "rss.nytimes.com",
+    "feeds.arstechnica.com",
+}
+
+def _safe_rss_url(url: str) -> bool:
+    """Validate RSS URL against allowlist and private-IP block."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = parsed.hostname or ""
+        if host not in _RSS_ALLOWED_HOSTS:
+            return False
+        if _is_private_ip(host):
+            return False
+        return True
+    except Exception:
+        return False
+
+def _escape_slack(text: str) -> str:
+    """Escape Slack mrkdwn special characters in untrusted content."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+# ---------------------------------------------------------------------------
+# Cost + concurrency limits for run_compare
+# ---------------------------------------------------------------------------
+
+MAX_COMPARE_COST_USD = float(os.getenv("MAX_COMPARE_COST_USD", "2.00"))
+MAX_COMPARE_PROVIDERS = int(os.getenv("MAX_COMPARE_PROVIDERS", "6"))
+
+# ---------------------------------------------------------------------------
 # Provider-agnostic LLM dispatcher
 # ---------------------------------------------------------------------------
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=15))
+def _is_auth_error(exc: BaseException) -> bool:
+    """Return True for 4xx auth errors that should NOT be retried."""
+    msg = str(exc).lower()
+    return any(k in msg for k in ("401", "403", "invalid_api_key", "authentication", "unauthorized", "forbidden"))
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=15),
+    retry=retry_if_exception(lambda e: not _is_auth_error(e)),
+)
 def _call_llm(system: str, user: str, provider: str, tier: str = "fast", max_tokens: int = 1200) -> str:
     model = PROVIDER_MODELS[provider][tier]
+    api_key = _get_key(provider)  # always fresh — never stale module-level dict
 
     # --- Anthropic native SDK ---
     if provider == "anthropic":
         import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model=model, max_tokens=max_tokens,
             system=system,
@@ -157,15 +235,14 @@ def _call_llm(system: str, user: str, provider: str, tier: str = "fast", max_tok
     # --- Google Gemini native SDK ---
     elif provider == "google":
         import google.generativeai as genai
-        genai.configure(api_key=GOOGLE_API_KEY)
+        genai.configure(api_key=api_key)
         m = genai.GenerativeModel(model_name=model, system_instruction=system)
         return m.generate_content(user).text.strip()
 
     # --- OpenAI-compatible providers (openai / mistral / groq / openrouter) ---
     else:
         from openai import OpenAI
-        base_url = OPENAI_COMPAT_BASES.get(provider)   # None → OpenAI default
-        api_key  = PROVIDER_KEYS[provider]
+        base_url = OPENAI_COMPAT_BASES.get(provider)
         extra_headers = {}
         if provider == "openrouter":
             extra_headers = {
@@ -187,8 +264,9 @@ def _call_llm(system: str, user: str, provider: str, tier: str = "fast", max_tok
 
 def _search_web(query: str) -> tuple[str, list[str]]:
     headers = {"Accept": "application/json"}
-    if JINA_API_KEY:
-        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+    jina_key = os.getenv("JINA_API_KEY", "")
+    if jina_key:
+        headers["Authorization"] = f"Bearer {jina_key}"
     try:
         resp = requests.get(f"https://s.jina.ai/{requests.utils.quote(query)}",
                             headers=headers, timeout=30)
@@ -203,11 +281,6 @@ def _search_web(query: str) -> tuple[str, list[str]]:
     except Exception as e:
         logger.warning(f"Jina unavailable — {e}")
         return f"Research topic: {query}\n(Web search unavailable)", []
-
-def run_research(topic: str) -> ResearchResult:
-    logger.info(f"[Stage 1] Researching: {topic}")
-    content, sources = _search_web(topic)
-    return ResearchResult(topic=topic, raw_content=content, sources=sources)
 
 # ---------------------------------------------------------------------------
 # Stage 2 — Parallel LLM Analysis
@@ -248,7 +321,7 @@ def run_analysis(research: ResearchResult, provider: str) -> AnalysisResult:
                 logger.info(f"  ✓ {key}")
             except Exception as e:
                 logger.error(f"  ✗ {key}: {e}")
-                result.error = str(e)
+                result.errors.append(f"{key}: {e}")  # aggregate all errors
     return result
 
 # ---------------------------------------------------------------------------
@@ -296,27 +369,40 @@ def format_html_report(topic, combined, provider):
 # Stage 5 — Deliver
 # ---------------------------------------------------------------------------
 
-def send_email(recipient, topic, html_body, dry_run=False):
-    subject = f"Genesis Pipeline Report: {topic} — {datetime.now().strftime('%Y-%m-%d')}"
+def send_email(recipient: str, topic: str, html_body: str, dry_run: bool = False) -> bool:
+    # Sanitise header-injection vectors
+    safe_topic     = _strip_header_injection(topic)
+    safe_recipient = _strip_header_injection(recipient)
+    subject = f"Genesis Pipeline Report: {safe_topic} — {datetime.now().strftime('%Y-%m-%d')}"
+
     if dry_run or not (SMTP_USER and SMTP_PASS):
         out = Path(f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
         out.write_text(html_body, encoding="utf-8")
         logger.info(f"[Stage 5] {'DRY-RUN' if dry_run else 'No SMTP'} — saved {out}")
         return True
+
+    if not (_VALID_SMTP_HOST and _VALID_SMTP_PORT):
+        logger.error(f"[Stage 5] Invalid SMTP config: host={SMTP_HOST!r} port={SMTP_PORT}")
+        return False
+
     msg = MIMEMultipart("alternative")
-    msg["Subject"], msg["From"], msg["To"] = subject, SMTP_FROM or SMTP_USER, recipient
+    msg["Subject"] = subject
+    msg["From"]    = SMTP_FROM or SMTP_USER
+    msg["To"]      = safe_recipient
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     try:
+        tls_ctx = ssl.create_default_context()  # verifies server cert, prevents MITM
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.ehlo(); s.starttls(); s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(SMTP_FROM or SMTP_USER, [recipient], msg.as_string())
-        logger.info(f"[Stage 5] Email sent → {recipient}")
+            s.ehlo()
+            s.starttls(context=tls_ctx)
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(SMTP_FROM or SMTP_USER, [safe_recipient], msg.as_string())
+        logger.info(f"[Stage 5] Email sent → {safe_recipient}")
         return True
     except Exception as e:
         logger.error(f"[Stage 5] SMTP error: {e}")
         return False
 
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Orchestrator  (single definition — Phase 1+2 features built in)
 # ---------------------------------------------------------------------------
@@ -324,48 +410,42 @@ def send_email(recipient, topic, html_body, dry_run=False):
 import sqlite3
 import hashlib
 import json as _json
-import re
 import threading
-import xml.etree.ElementTree as _ET
 
 DB_PATH = Path("genesis_runs.db")
-
-# ---------------------------------------------------------------------------
-# Provider key helper — reads live from env, never stale
-# ---------------------------------------------------------------------------
-
-def _get_key(provider: str) -> str:
-    return os.getenv(ENV_VAR_NAMES[provider], "")
-
-def _active_providers() -> dict[str, str]:
-    return {p: _get_key(p) for p in PROVIDER_MODELS if _get_key(p)}
+_SIDECAR_BASE_DIR = Path(".")  # restrict sidecar writes to this directory
 
 # ---------------------------------------------------------------------------
 # SQLite run log
 # ---------------------------------------------------------------------------
 
+_db_local = threading.local()
+
 def _db_connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS runs (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_at        TEXT NOT NULL,
-            topic         TEXT NOT NULL,
-            provider      TEXT NOT NULL,
-            recipient     TEXT NOT NULL,
-            elapsed_s     REAL,
-            input_tokens  INTEGER DEFAULT 0,
-            output_tokens INTEGER DEFAULT 0,
-            cost_usd      REAL DEFAULT 0.0,
-            report_hash   TEXT,
-            sent          INTEGER DEFAULT 0,
-            dry_run       INTEGER DEFAULT 0,
-            sidecar_path  TEXT,
-            client        TEXT DEFAULT ''
-        )
-    """)
-    conn.commit()
-    return conn
+    """Return a per-thread SQLite connection (thread-safe, no shared state)."""
+    if not getattr(_db_local, "conn", None):
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_at        TEXT NOT NULL,
+                topic         TEXT NOT NULL,
+                provider      TEXT NOT NULL,
+                recipient     TEXT NOT NULL,
+                elapsed_s     REAL,
+                input_tokens  INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cost_usd      REAL DEFAULT 0.0,
+                report_hash   TEXT,
+                sent          INTEGER DEFAULT 0,
+                dry_run       INTEGER DEFAULT 0,
+                sidecar_path  TEXT,
+                client        TEXT DEFAULT ''
+            )
+        """)
+        conn.commit()
+        _db_local.conn = conn
+    return _db_local.conn
 
 def log_run(*, topic: str, provider: str, recipient: str, elapsed_s: float,
             input_tokens: int, output_tokens: int, cost_usd: float,
@@ -384,7 +464,6 @@ def log_run(*, topic: str, provider: str, recipient: str, elapsed_s: float,
     )
     conn.commit()
     run_id = cur.lastrowid
-    conn.close()
     logger.info(f"[DB] Run #{run_id} logged — cost=${cost_usd:.4f} tokens={input_tokens}in/{output_tokens}out")
     return run_id
 
@@ -395,7 +474,6 @@ def get_run_history(limit: int = 10) -> list[dict]:
     cur = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,))
     cols = [d[0] for d in cur.description]
     rows = cur.fetchall()
-    conn.close()
     return [dict(zip(cols, r)) for r in rows]
 
 def get_last_report_hash(topic: str, provider: str) -> str:
@@ -407,7 +485,6 @@ def get_last_report_hash(topic: str, provider: str) -> str:
         "SELECT report_hash FROM runs WHERE topic=? AND provider=? ORDER BY id DESC LIMIT 1",
         (topic, provider)
     ).fetchone()
-    conn.close()
     return row[0] if row else ""
 
 # ---------------------------------------------------------------------------
@@ -459,15 +536,23 @@ def write_json_sidecar(*, topic: str, provider: str, recipient: str,
                        cost_usd: float, report_hash: str,
                        run_at: str, filename: str,
                        delta_new: bool = False, client: str = "") -> str:
+    # Restrict writes to the base directory — prevent path traversal
+    resolved = (_SIDECAR_BASE_DIR / Path(filename).name).resolve()
+    if not str(resolved).startswith(str(_SIDECAR_BASE_DIR.resolve())):
+        raise ValueError(f"Sidecar path escapes base dir: {filename!r}")
+
+    # Redact PII — store a hash of the recipient address, not the address itself
+    recipient_hash = hashlib.sha256(recipient.encode()).hexdigest()[:16]
+
     data = {
-        "schema_version": "1.1",
-        "run_at":    run_at,
-        "topic":     topic,
-        "client":    client,
-        "provider":  provider,
-        "recipient": recipient,
-        "delta_new": delta_new,
-        "sources":   sources,
+        "schema_version": "1.2",
+        "run_at":          run_at,
+        "topic":           topic,
+        "client":          client,
+        "provider":        provider,
+        "recipient_hash":  recipient_hash,   # PII redacted
+        "delta_new":       delta_new,
+        "sources":         sources,
         "analysis": {
             "executive_summary": analysis.executive_summary,
             "opportunities":     analysis.opportunities,
@@ -480,10 +565,9 @@ def write_json_sidecar(*, topic: str, provider: str, recipient: str,
         },
         "report_hash": report_hash,
     }
-    path = Path(filename)
-    path.write_text(_json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    logger.info(f"[Sidecar] JSON written → {path}")
-    return str(path)
+    resolved.write_text(_json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.info(f"[Sidecar] JSON written → {resolved}")
+    return str(resolved)
 
 # ---------------------------------------------------------------------------
 # Phase 2 — Richer research: RSS feeds + DuckDuckGo HTML fallback
@@ -501,27 +585,37 @@ def _fetch_rss(topic: str, max_items: int = 5) -> tuple[str, list[str]]:
     keywords = set(re.sub(r"[^\w\s]", "", topic.lower()).split())
     items_found: list[tuple[str, str, str]] = []  # (title, link, summary)
     for feed_url in RSS_FEEDS:
+        if not _safe_rss_url(feed_url):
+            logger.warning(f"[RSS] Skipping untrusted feed URL: {feed_url}")
+            continue
         try:
             r = requests.get(feed_url, timeout=10,
+                             allow_redirects=False,  # no redirect following
                              headers={"User-Agent": "GenesisResearch/2.0"})
             r.raise_for_status()
-            root = _ET.fromstring(r.content)
+            root = _ET.fromstring(r.content)  # defusedxml — XXE-safe
             ns = {"atom": "http://www.w3.org/2005/Atom"}
             # RSS 2.0
             for item in root.iter("item"):
-                title   = (item.findtext("title") or "").strip()
-                link    = (item.findtext("link") or "").strip()
-                summary = (item.findtext("description") or "")[:500].strip()
-                text    = (title + " " + summary).lower()
+                raw_title   = item.findtext("title") or ""
+                raw_link    = item.findtext("link") or ""
+                raw_summary = item.findtext("description") or ""
+                # HTML-escape untrusted RSS content before embedding in reports
+                title   = _html.escape(raw_title.strip())
+                link    = raw_link.strip()
+                summary = _html.escape(raw_summary[:500].strip())
+                text    = (raw_title + " " + raw_summary).lower()
                 if any(kw in text for kw in keywords):
                     items_found.append((title, link, summary))
             # Atom
             for entry in root.findall("atom:entry", ns):
-                title   = (entry.findtext("atom:title", namespaces=ns) or "").strip()
-                link_el = entry.find("atom:link", ns)
-                link    = (link_el.get("href", "") if link_el is not None else "")
-                summary = (entry.findtext("atom:summary", namespaces=ns) or "")[:500].strip()
-                text    = (title + " " + summary).lower()
+                raw_title   = entry.findtext("atom:title", namespaces=ns) or ""
+                link_el     = entry.find("atom:link", ns)
+                link        = (link_el.get("href", "") if link_el is not None else "")
+                raw_summary = entry.findtext("atom:summary", namespaces=ns) or ""
+                title   = _html.escape(raw_title.strip())
+                summary = _html.escape(raw_summary[:500].strip())
+                text    = (raw_title + " " + raw_summary).lower()
                 if any(kw in text for kw in keywords):
                     items_found.append((title, link, summary))
         except Exception as e:
@@ -551,7 +645,7 @@ def _fetch_ddg_fallback(topic: str) -> tuple[str, list[str]]:
         )
         r.raise_for_status()
         data = r.json()
-        abstract = data.get("AbstractText", "").strip()
+        abstract     = data.get("AbstractText", "").strip()
         abstract_url = data.get("AbstractURL", "").strip()
         related = [
             f"{t.get('Text', '')[:200]} — {t.get('FirstURL', '')}"
@@ -654,12 +748,16 @@ def send_slack(topic: str, provider: str, cost_summary: str,
                client: str = "") -> bool:
     if not SLACK_WEBHOOK_URL:
         return False
-    client_tag = f" [{client}]" if client else ""
+    client_tag = f" [{_escape_slack(client)}]" if client else ""
+    # Escape LLM/user content to prevent Slack mrkdwn injection
+    safe_topic   = _escape_slack(topic)
+    safe_summary = _escape_slack(executive_summary[:300])
+    safe_path    = _escape_slack(report_path)
     text = (
-        f":newspaper: *Genesis Pipeline Report{client_tag}* — _{topic}_\n"
+        f":newspaper: *Genesis Pipeline Report{client_tag}* — _{safe_topic}_\n"
         f">Provider: `{provider}` | {cost_summary}\n"
-        f">{executive_summary[:300]}{'...' if len(executive_summary) > 300 else ''}"
-        + (f"\n>Report: `{report_path}`" if report_path else "")
+        f">{safe_summary}{'...' if len(executive_summary) > 300 else ''}"
+        + (f"\n>Report: `{safe_path}`" if safe_path else "")
     )
     try:
         r = requests.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
@@ -686,7 +784,7 @@ def run_pipeline(topic: str, recipient_email: str, provider: str = "anthropic",
     # Input validation
     if not topic.strip():
         raise ValueError("--topic cannot be empty")
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", recipient_email):
+    if not _validate_email(recipient_email):
         raise ValueError(f"Invalid email address: {recipient_email!r}")
 
     run = PipelineRun(topic=topic, recipient_email=recipient_email, provider=provider)
@@ -698,15 +796,14 @@ def run_pipeline(topic: str, recipient_email: str, provider: str = "anthropic",
     delta_prompt = _extract_delta_prompt(prev_hash)
 
     run.research    = run_research(topic)
-    # Inject delta prompt into research content so analysts see it
     if delta_prompt:
         run.research.raw_content += delta_prompt
     run.analysis    = run_analysis(run.research, provider)
     combined        = combine_results(topic, run.analysis, run.research.sources)
     run.html_report = format_html_report(topic, combined, provider)
 
-    # Token estimates (input = research fed to LLM, output = all generated text)
-    in_tok  = _estimate_tokens(run.research.raw_content) * 4  # 3 parallel + 1 powerful call
+    # Token estimates
+    in_tok  = _estimate_tokens(run.research.raw_content) * 4
     out_tok = _estimate_tokens(run.analysis.executive_summary +
                                run.analysis.opportunities +
                                run.analysis.action_plan +
@@ -718,7 +815,7 @@ def run_pipeline(topic: str, recipient_email: str, provider: str = "anthropic",
     report_hash = hashlib.sha256(run.html_report.encode()).hexdigest()[:16]
     delta_new   = _is_new_content(run.html_report, prev_hash)
 
-    # Stage 5 — single delivery point (no duplicate file writes)
+    # Stage 5 — single delivery point
     if dry_run or not (SMTP_USER and SMTP_PASS):
         out = Path(f"report_{ts}.html")
         out.write_text(run.html_report, encoding="utf-8")
@@ -769,7 +866,7 @@ def run_scheduled(topic: str, recipient_email: str, provider: str):
         logger.info("Scheduler stopped")
 
 # ---------------------------------------------------------------------------
-# --compare mode
+# --compare mode (with cost cap + provider cap)
 # ---------------------------------------------------------------------------
 
 def run_compare(topic: str, recipient_email: str, dry_run: bool = False):
@@ -777,11 +874,32 @@ def run_compare(topic: str, recipient_email: str, dry_run: bool = False):
     if not active:
         logger.error("No API keys found in .env — set at least one provider key")
         return
-    logger.info(f"[Compare] Running {len(active)} providers: {', '.join(active)}")
+
+    # Enforce provider cap to bound cost amplification
+    if len(active) > MAX_COMPARE_PROVIDERS:
+        logger.warning(f"[Compare] Capping to {MAX_COMPARE_PROVIDERS} providers (MAX_COMPARE_PROVIDERS)")
+        active = dict(list(active.items())[:MAX_COMPARE_PROVIDERS])
+
+    logger.info(f"[Compare] Running {len(active)} providers: {', '.join(active)} | budget cap=${MAX_COMPARE_COST_USD:.2f}")
     research = run_research(topic)
 
+    cost_lock    = threading.Lock()
+    running_cost = [0.0]  # mutable container for thread-safe accumulation
+
     def _run_one(provider: str) -> tuple[str, "AnalysisResult", float]:
-        t0 = datetime.now()
+        # Pre-flight cost estimate using fast-tier rates
+        est_in  = _estimate_tokens(research.raw_content) * 4
+        est_out = 2000
+        rates   = COST_PER_1M.get(provider, {"input": 0.10, "output": 0.30})
+        est_cost = est_in / 1_000_000 * rates["input"] + est_out / 1_000_000 * rates["output"]
+        with cost_lock:
+            if running_cost[0] + est_cost > MAX_COMPARE_COST_USD:
+                raise RuntimeError(
+                    f"Budget cap ${MAX_COMPARE_COST_USD:.2f} would be exceeded; skipping {provider}"
+                )
+            running_cost[0] += est_cost
+
+        t0       = datetime.now()
         analysis = run_analysis(research, provider)
         combined = combine_results(topic, analysis, research.sources)
         html     = format_html_report(topic, combined, provider)
@@ -789,7 +907,7 @@ def run_compare(topic: str, recipient_email: str, dry_run: bool = False):
         return html, analysis, elapsed
 
     results: dict[str, tuple[str, "AnalysisResult", float]] = {}
-    with ThreadPoolExecutor(max_workers=len(active)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(active), MAX_COMPARE_PROVIDERS)) as pool:
         futures = {pool.submit(_run_one, p): p for p in active}
         for future in as_completed(futures):
             p = futures[future]
@@ -810,7 +928,6 @@ def run_compare(topic: str, recipient_email: str, dry_run: bool = False):
 
 
 def _build_comparison_html(topic: str, results: dict, sources: list[str]) -> str:
-    import re as _re
     colors = ["#0f3460", "#1a6b3c", "#7c2d12", "#1e3a5f", "#4a1d6e", "#0e4b3a"]
     provider_colors = {p: colors[i % len(colors)] for i, p in enumerate(results)}
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -843,7 +960,10 @@ def _build_comparison_html(topic: str, results: dict, sources: list[str]) -> str
         for _, (_, _, elapsed) in results.items()
     )
 
-    sources_html = "".join(f'<li style="font-size:0.78rem;margin:3px 0"><a href="{s}" style="color:#3b82f6">{s}</a></li>' for s in sources if s)
+    sources_html = "".join(
+        f'<li style="font-size:0.78rem;margin:3px 0"><a href="{s}" style="color:#3b82f6">{s}</a></li>'
+        for s in sources if s
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
