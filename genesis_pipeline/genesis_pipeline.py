@@ -928,6 +928,7 @@ def run_compare(topic: str, recipient_email: str, dry_run: bool = False):
 
 
 def _build_comparison_html(topic: str, results: dict, sources: list[str]) -> str:
+    topic = _html.escape(topic)
     colors = ["#0f3460", "#1a6b3c", "#7c2d12", "#1e3a5f", "#4a1d6e", "#0e4b3a"]
     provider_colors = {p: colors[i % len(colors)] for i, p in enumerate(results)}
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
