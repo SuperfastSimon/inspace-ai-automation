@@ -1,0 +1,19 @@
+# Multi-tenant client config for Genesis Pipeline Phase 2
+# Copy to clients.yaml and fill in your clients
+# Run: python genesis_pipeline.py --clients --dry-run
+
+clients:
+  - name: "Saikou Tech"
+    topic: "AI automation for small business"
+    email: "martin@saikou.tech"
+    provider: "anthropic"
+
+  - name: "Client B"
+    topic: "E-commerce trends 2025"
+    email: "contact@clientb.com"
+    provider: "openai"
+
+  - name: "Client C"
+    topic: "Sustainable logistics"
+    email: "info@clientc.com"
+    provider: "mistral"
