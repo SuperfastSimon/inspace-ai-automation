@@ -123,6 +123,18 @@
   .modal pre { background:#1e293b; color:#7dd3fc; padding:14px; border-radius:8px; font-size:0.8rem; overflow-x:auto; margin:12px 0; line-height:1.6; }
   .modal-close { float:right; background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--muted); }
 
+  /* Auth Gate */
+  .auth-gate { display:none; position:fixed; inset:0; background:#0d1b2a; z-index:9999; align-items:center; justify-content:center; flex-direction:column; gap:24px; }
+  .auth-gate.show { display:flex; }
+  .auth-gate-content { text-align:center; margin-bottom:8px; }
+  .auth-gate-content h2 { color:white; font-size:1.5rem; font-weight:700; margin-bottom:6px; }
+  .auth-gate-content p { color:#94a3b8; font-size:0.9rem; }
+  .user-badge { display:none; position:fixed; top:12px; right:16px; z-index:1000; background:rgba(255,255,255,0.1); backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:8px 12px; align-items:center; gap:8px; }
+  .user-badge.show { display:flex; }
+  .user-badge img { border-radius:50%; width:26px; height:26px; }
+  .user-badge span { color:white; font-size:0.82rem; font-weight:600; }
+  .user-badge button { background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.75rem; margin-left:4px; padding:0; }
+
   @media(max-width:600px){
     header{flex-direction:column;gap:10px;text-align:center;}
     .pipeline-flow{flex-direction:column;align-items:flex-start;}
@@ -132,229 +144,253 @@
 </head>
 <body>
 
-<header>
-  <div>
-    <h1>⚡ <span>Saikou.tech</span> AI Automation Hub</h1>
-    <div class="header-meta"><span class="status-dot"></span>6 autonomous agents · GitHub-triggered · Self-scheduling</div>
+<!-- AUTH GATE -->
+<div id="authGate" class="auth-gate">
+  <div class="auth-gate-content">
+    <div style="font-size:2.8rem;margin-bottom:10px;">⚡</div>
+    <h2>Saikou.tech Automation Hub</h2>
+    <p>Authorized access only</p>
   </div>
-  <div style="text-align:right">
-    <a href="https://github.com/SuperfastSimon/inspace-ai-automation" target="_blank"
-       style="color:#60a5fa;font-size:0.85rem;text-decoration:none;">
-      📦 View on GitHub →
-    </a>
-  </div>
-</header>
-
-<div class="pipeline-banner">
-  🚀 Genesis Pipeline is live — research any topic and get a full AI report emailed to you
-  <a href="#genesis">Jump to Pipeline ↓</a>
+  <a id="ghLoginBtn" href="#" style="display:inline-flex;align-items:center;gap:10px;background:white;color:#0d1b2a;padding:13px 28px;border-radius:9px;font-weight:700;font-size:0.95rem;text-decoration:none;">
+    <svg height="22" width="22" viewBox="0 0 16 16" fill="#0d1b2a"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.48-.94-.41-.71-1.07-.94-1.07-.94-.87-.59.07-.59.07-.59.97.07 1.48 1 1.48 1 .86 1.49 2.26 1.06 2.81.81.09-.63.34-1.06.55-1.3-1.93-.22-3.97-1-3.97-4.35 0-.96.34-1.75.9-2.37-.09-.22-.41-1.13.09-2.35 0 0 .73-.24 2.4.89.7-.2 1.45-.29 2.2-.29s1.5.09 2.2.29c1.67-1.13 2.4-.89 2.4-.89.5 1.22.18 2.13.09 2.35.56.62.9 1.41.9 2.37 0 3.36-2.04 4.13-3.98 4.35.31.27.58.81.58 1.63 0 1.18-.01 2.13-.01 2.42 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    Sign in with GitHub
+  </a>
+  <p id="authStatus" style="color:#60a5fa;font-size:0.8rem;min-height:20px;"></p>
 </div>
 
-<main>
+<!-- User Badge -->
+<div id="userBadge" class="user-badge">
+  <img id="userAvatar" src="" alt="avatar">
+  <span id="userName"></span>
+  <button onclick="logout()">✕</button>
+</div>
 
-  <!-- CONCEPTS GRID -->
-  <h2 class="section-title">Autonomous Agents</h2>
-  <div class="grid">
-
-    <!-- Concept 1 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-icon">🧠</div>
-        <div>
-          <div class="card-title">LLM Brand Entity Monitor</div>
-          <div class="card-subtitle">concept1_llm_brand_monitor</div>
-        </div>
-      </div>
-      <span class="badge badge-weekly">⏰ Daily 08:00</span>
-      <div class="trigger-row"><span class="trigger-icon">🔗</span>Claude + GPT-4o queried in parallel · Slack Block Kit digest</div>
-      <div class="trigger-row"><span class="trigger-icon">📊</span>Sentiment analysis · brand mention extraction · 5 prompts</div>
-      <div class="btn-row">
-        <button class="btn btn-run" onclick="showRunModal('concept1','python main.py --run-now')">▶ Run Now</button>
-        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept1_llm_brand_monitor" target="_blank">📁 Code</a>
-        <button class="btn btn-secondary" onclick="showEnvModal('concept1')">⚙️ Config</button>
-      </div>
+<!-- Dashboard Content -->
+<div id="dashboardContent" style="display:none;">
+  <header>
+    <div>
+      <h1>⚡ <span>Saikou.tech</span> AI Automation Hub</h1>
+      <div class="header-meta"><span class="status-dot"></span>6 autonomous agents · GitHub-triggered · Self-scheduling</div>
     </div>
-
-    <!-- Concept 2 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-icon">🏗️</div>
-        <div>
-          <div class="card-title">Structured Data Auto-Injector</div>
-          <div class="card-subtitle">concept2_structured_data_injector</div>
-        </div>
-      </div>
-      <span class="badge badge-cli">🖥️ CLI / On-demand</span>
-      <div class="trigger-row"><span class="trigger-icon">🔗</span>Scans sitemap → detects missing schema.org → injects JSON-LD</div>
-      <div class="trigger-row"><span class="trigger-icon">✅</span>Validates via schema.org validator · WordPress REST API</div>
-      <div class="btn-row">
-        <button class="btn btn-run" onclick="showRunModal('concept2','python main.py --sitemap https://yoursite.com/sitemap.xml --dry-run')">▶ Dry Run</button>
-        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept2_structured_data_injector" target="_blank">📁 Code</a>
-        <button class="btn btn-secondary" onclick="showEnvModal('concept2')">⚙️ Config</button>
-      </div>
+    <div style="text-align:right">
+      <a href="https://github.com/SuperfastSimon/inspace-ai-automation" target="_blank"
+         style="color:#60a5fa;font-size:0.85rem;text-decoration:none;">
+        📦 View on GitHub →
+      </a>
     </div>
+  </header>
 
-    <!-- Concept 3 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-icon">🔄</div>
-        <div>
-          <div class="card-title">Content Freshness Guardian</div>
-          <div class="card-subtitle">concept3_content_freshness</div>
-        </div>
-      </div>
-      <span class="badge badge-weekly">⏰ Weekly Mon 07:00</span>
-      <div class="trigger-row"><span class="trigger-icon">🔗</span>WordPress REST API · staleness scoring · priority ranking</div>
-      <div class="trigger-row"><span class="trigger-icon">📧</span>HTML email digest via Jinja2 + SMTP</div>
-      <div class="btn-row">
-        <button class="btn btn-run" onclick="showRunModal('concept3','python main.py --run-now --min-priority high')">▶ Run Now</button>
-        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept3_content_freshness" target="_blank">📁 Code</a>
-        <button class="btn btn-secondary" onclick="showEnvModal('concept3')">⚙️ Config</button>
-      </div>
-    </div>
-
-    <!-- Concept 4 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-icon">🕸️</div>
-        <div>
-          <div class="card-title">Internal Linking Intelligence</div>
-          <div class="card-subtitle">concept4_internal_linking</div>
-        </div>
-      </div>
-      <span class="badge badge-cli">🖥️ CLI / On-demand</span>
-      <div class="trigger-row"><span class="trigger-icon">🔗</span>Sitemap crawl → embeddings → cosine similarity → opportunities</div>
-      <div class="trigger-row"><span class="trigger-icon">📊</span>Google Sheets export · orphan detection · anchor generation</div>
-      <div class="btn-row">
-        <button class="btn btn-run" onclick="showRunModal('concept4','python main.py --sitemap https://yoursite.com/sitemap.xml --skip-anchors')">▶ Run Now</button>
-        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept4_internal_linking" target="_blank">📁 Code</a>
-        <button class="btn btn-secondary" onclick="showEnvModal('concept4')">⚙️ Config</button>
-      </div>
-    </div>
-
-    <!-- Concept 5 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-icon">🎯</div>
-        <div>
-          <div class="card-title">Competitor GEO Intelligence</div>
-          <div class="card-subtitle">concept5_competitor_geo</div>
-        </div>
-      </div>
-      <span class="badge badge-weekly">⏰ Weekly Fri 06:00</span>
-      <div class="trigger-row"><span class="trigger-icon">🔗</span>LLM visibility scoring · SQLite trend history · Markdown reports</div>
-      <div class="trigger-row"><span class="trigger-icon">📈</span>↑↓→ trend arrows · gap-to-leader analysis · 8-week history</div>
-      <div class="btn-row">
-        <button class="btn btn-run" onclick="showRunModal('concept5','python main.py --run-now')">▶ Run Now</button>
-        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept5_competitor_geo" target="_blank">📁 Code</a>
-        <button class="btn btn-secondary" onclick="showEnvModal('concept5')">⚙️ Config</button>
-      </div>
-    </div>
-
-    <!-- Genesis Pipeline -->
-    <div class="card" id="genesis" style="border-color:#7c3aed;border-width:2px;">
-      <div class="card-header">
-        <div class="card-icon">🚀</div>
-        <div>
-          <div class="card-title">Genesis Pipeline</div>
-          <div class="card-subtitle">genesis_pipeline · Single-file autonomous</div>
-        </div>
-      </div>
-      <span class="badge badge-live">⏰ Weekly Fri 06:00 + On-demand</span>
-      <div class="trigger-row"><span class="trigger-icon">🔗</span>Jina search → 3× parallel Sonnet → Opus HTML → SMTP</div>
-      <div class="trigger-row"><span class="trigger-icon">✅</span>Self-sufficient · no platform dependency · --dry-run safe</div>
-      <div class="btn-row">
-        <button class="btn btn-run" onclick="showRunModal('genesis','python genesis_pipeline.py --topic \"your topic\" --email you@example.com --dry-run')">▶ Dry Run</button>
-        <button class="btn btn-primary" onclick="showRunModal('genesis','python genesis_pipeline.py --topic \"your topic\" --email you@example.com')">📧 Run + Send</button>
-        <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/genesis_pipeline" target="_blank">📁 Code</a>
-      </div>
-    </div>
-
+  <div class="pipeline-banner">
+    🚀 Genesis Pipeline is live — research any topic and get a full AI report emailed to you
+    <a href="#genesis">Jump to Pipeline ↓</a>
   </div>
 
-  <!-- WIRING DIAGRAM -->
-  <h2 class="section-title">Genesis Pipeline — Live Wiring</h2>
-  <div class="wiring-section">
-    <p style="color:var(--muted);font-size:0.85rem;">End-to-end data flow — all stages execute automatically in sequence with 3 parallel LLM passes at the analysis stage.</p>
-    <div class="pipeline-flow" style="margin-top:24px;gap:6px;align-items:center;flex-wrap:wrap;">
-      <div class="flow-node">🎯<br><small>Topic Input</small></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-node">🌐<br><small>Jina Web Search</small></div>
-      <div class="flow-arrow">→</div>
-      <div class="parallel-stack">
-        <div class="flow-node parallel-group">📝 Executive Summary<br><small>claude-sonnet-4-6</small></div>
-        <div class="flow-node parallel-group">💡 Opportunities<br><small>claude-sonnet-4-6</small></div>
-        <div class="flow-node parallel-group">📅 Action Plan<br><small>claude-sonnet-4-6</small></div>
-      </div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-node">🔗<br><small>Combine Results</small></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-node output">🎨<br><small>HTML Formatter<br>claude-opus-4-7</small></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-node output">📧<br><small>SMTP Send</small></div>
-    </div>
-  </div>
+  <main>
 
-  <!-- TRIGGERS -->
-  <h2 class="section-title">Scheduled Triggers</h2>
-  <div class="triggers-grid">
-    <div class="trigger-card">
-      <div class="trigger-icon-lg">⏰</div>
-      <div>
-        <div class="trigger-name">Brand Monitor — Daily</div>
-        <div class="trigger-desc">Queries Claude + GPT-4o, sends Slack digest</div>
-        <div class="trigger-cron">0 8 * * * (Amsterdam)</div>
-      </div>
-    </div>
-    <div class="trigger-card">
-      <div class="trigger-icon-lg">📅</div>
-      <div>
-        <div class="trigger-name">Content Guardian — Weekly</div>
-        <div class="trigger-desc">Scores all posts, emails freshness report</div>
-        <div class="trigger-cron">0 7 * * 1 (Monday)</div>
-      </div>
-    </div>
-    <div class="trigger-card">
-      <div class="trigger-icon-lg">🎯</div>
-      <div>
-        <div class="trigger-name">GEO Tracker — Weekly</div>
-        <div class="trigger-desc">LLM visibility snapshot + trend analysis</div>
-        <div class="trigger-cron">0 6 * * 5 (Friday)</div>
-      </div>
-    </div>
-    <div class="trigger-card">
-      <div class="trigger-icon-lg">🚀</div>
-      <div>
-        <div class="trigger-name">Genesis Pipeline — Weekly + On-demand</div>
-        <div class="trigger-desc">Full research + HTML report + email delivery</div>
-        <div class="trigger-cron">0 6 * * 5 + GitHub dispatch</div>
-      </div>
-    </div>
-    <div class="trigger-card">
-      <div class="trigger-icon-lg">⚡</div>
-      <div>
-        <div class="trigger-name">GitHub Actions CI</div>
-        <div class="trigger-desc">Push to main → lint + dry-run all agents</div>
-        <div class="trigger-cron">on: push, pull_request</div>
-      </div>
-    </div>
-    <div class="trigger-card">
-      <div class="trigger-icon-lg">🌐</div>
-      <div>
-        <div class="trigger-name">Manual Dispatch</div>
-        <div class="trigger-desc">Trigger any agent from GitHub Actions UI</div>
-        <div class="trigger-cron">on: workflow_dispatch</div>
-      </div>
-    </div>
-  </div>
+    <!-- CONCEPTS GRID -->
+    <h2 class="section-title">Autonomous Agents</h2>
+    <div class="grid">
 
-</main>
+      <!-- Concept 1 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🧠</div>
+          <div>
+            <div class="card-title">LLM Brand Entity Monitor</div>
+            <div class="card-subtitle">concept1_llm_brand_monitor</div>
+          </div>
+        </div>
+        <span class="badge badge-weekly">⏰ Daily 08:00</span>
+        <div class="trigger-row"><span class="trigger-icon">🔗</span>Claude + GPT-4o queried in parallel · Slack Block Kit digest</div>
+        <div class="trigger-row"><span class="trigger-icon">📊</span>Sentiment analysis · brand mention extraction · 5 prompts</div>
+        <div class="btn-row">
+          <button class="btn btn-run" onclick="showRunModal('concept1','python main.py --run-now')">▶ Run Now</button>
+          <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept1_llm_brand_monitor" target="_blank">📁 Code</a>
+          <button class="btn btn-secondary" onclick="showEnvModal('concept1')">⚙️ Config</button>
+        </div>
+      </div>
 
-<footer>
-  Built by <a href="https://saikou.tech" target="_blank">Saikou.tech</a> · 
-  <a href="https://github.com/SuperfastSimon/inspace-ai-automation" target="_blank">GitHub</a> · 
-  6 autonomous AI automation concepts · InSpace Application 2026
-</footer>
+      <!-- Concept 2 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🏗️</div>
+          <div>
+            <div class="card-title">Structured Data Auto-Injector</div>
+            <div class="card-subtitle">concept2_structured_data_injector</div>
+          </div>
+        </div>
+        <span class="badge badge-cli">🖥️ CLI / On-demand</span>
+        <div class="trigger-row"><span class="trigger-icon">🔗</span>Scans sitemap → detects missing schema.org → injects JSON-LD</div>
+        <div class="trigger-row"><span class="trigger-icon">✅</span>Validates via schema.org validator · WordPress REST API</div>
+        <div class="btn-row">
+          <button class="btn btn-run" onclick="showRunModal('concept2','python main.py --sitemap https://yoursite.com/sitemap.xml --dry-run')">▶ Dry Run</button>
+          <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept2_structured_data_injector" target="_blank">📁 Code</a>
+          <button class="btn btn-secondary" onclick="showEnvModal('concept2')">⚙️ Config</button>
+        </div>
+      </div>
+
+      <!-- Concept 3 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🔄</div>
+          <div>
+            <div class="card-title">Content Freshness Guardian</div>
+            <div class="card-subtitle">concept3_content_freshness</div>
+          </div>
+        </div>
+        <span class="badge badge-weekly">⏰ Weekly Mon 07:00</span>
+        <div class="trigger-row"><span class="trigger-icon">🔗</span>WordPress REST API · staleness scoring · priority ranking</div>
+        <div class="trigger-row"><span class="trigger-icon">📧</span>HTML email digest via Jinja2 + SMTP</div>
+        <div class="btn-row">
+          <button class="btn btn-run" onclick="showRunModal('concept3','python main.py --run-now --min-priority high')">▶ Run Now</button>
+          <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept3_content_freshness" target="_blank">📁 Code</a>
+          <button class="btn btn-secondary" onclick="showEnvModal('concept3')">⚙️ Config</button>
+        </div>
+      </div>
+
+      <!-- Concept 4 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🕸️</div>
+          <div>
+            <div class="card-title">Internal Linking Intelligence</div>
+            <div class="card-subtitle">concept4_internal_linking</div>
+          </div>
+        </div>
+        <span class="badge badge-cli">🖥️ CLI / On-demand</span>
+        <div class="trigger-row"><span class="trigger-icon">🔗</span>Sitemap crawl → embeddings → cosine similarity → opportunities</div>
+        <div class="trigger-row"><span class="trigger-icon">📊</span>Google Sheets export · orphan detection · anchor generation</div>
+        <div class="btn-row">
+          <button class="btn btn-run" onclick="showRunModal('concept4','python main.py --sitemap https://yoursite.com/sitemap.xml --skip-anchors')">▶ Run Now</button>
+          <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept4_internal_linking" target="_blank">📁 Code</a>
+          <button class="btn btn-secondary" onclick="showEnvModal('concept4')">⚙️ Config</button>
+        </div>
+      </div>
+
+      <!-- Concept 5 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🎯</div>
+          <div>
+            <div class="card-title">Competitor GEO Intelligence</div>
+            <div class="card-subtitle">concept5_competitor_geo</div>
+          </div>
+        </div>
+        <span class="badge badge-weekly">⏰ Weekly Fri 06:00</span>
+        <div class="trigger-row"><span class="trigger-icon">🔗</span>LLM visibility scoring · SQLite trend history · Markdown reports</div>
+        <div class="trigger-row"><span class="trigger-icon">📈</span>↑↓→ trend arrows · gap-to-leader analysis · 8-week history</div>
+        <div class="btn-row">
+          <button class="btn btn-run" onclick="showRunModal('concept5','python main.py --run-now')">▶ Run Now</button>
+          <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/concept5_competitor_geo" target="_blank">📁 Code</a>
+          <button class="btn btn-secondary" onclick="showEnvModal('concept5')">⚙️ Config</button>
+        </div>
+      </div>
+
+      <!-- Genesis Pipeline -->
+      <div class="card" id="genesis" style="border-color:#7c3aed;border-width:2px;">
+        <div class="card-header">
+          <div class="card-icon">🚀</div>
+          <div>
+            <div class="card-title">Genesis Pipeline</div>
+            <div class="card-subtitle">genesis_pipeline · Single-file autonomous</div>
+          </div>
+        </div>
+        <span class="badge badge-live">⏰ Weekly Fri 06:00 + On-demand</span>
+        <div class="trigger-row"><span class="trigger-icon">🔗</span>Jina search → 3× parallel Sonnet → Opus HTML → SMTP</div>
+        <div class="trigger-row"><span class="trigger-icon">✅</span>Self-sufficient · no platform dependency · --dry-run safe</div>
+        <div class="btn-row">
+          <button class="btn btn-run" onclick="showRunModal('genesis','python genesis_pipeline.py --topic \"your topic\" --email you@example.com --dry-run')">▶ Dry Run</button>
+          <button class="btn btn-primary" onclick="showRunModal('genesis','python genesis_pipeline.py --topic \"your topic\" --email you@example.com')">📧 Run + Send</button>
+          <a class="btn btn-secondary" href="https://github.com/SuperfastSimon/inspace-ai-automation/tree/main/genesis_pipeline" target="_blank">📁 Code</a>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- WIRING DIAGRAM -->
+    <h2 class="section-title">Genesis Pipeline — Live Wiring</h2>
+    <div class="wiring-section">
+      <p style="color:var(--muted);font-size:0.85rem;">End-to-end data flow — all stages execute automatically in sequence with 3 parallel LLM passes at the analysis stage.</p>
+      <div class="pipeline-flow" style="margin-top:24px;gap:6px;align-items:center;flex-wrap:wrap;">
+        <div class="flow-node">🎯<br><small>Topic Input</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">🌐<br><small>Jina Web Search</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="parallel-stack">
+          <div class="flow-node parallel-group">📝 Executive Summary<br><small>claude-sonnet-4-6</small></div>
+          <div class="flow-node parallel-group">💡 Opportunities<br><small>claude-sonnet-4-6</small></div>
+          <div class="flow-node parallel-group">📅 Action Plan<br><small>claude-sonnet-4-6</small></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">🔗<br><small>Combine Results</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node output">🎨<br><small>HTML Formatter<br>claude-opus-4-7</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node output">📧<br><small>SMTP Send</small></div>
+      </div>
+    </div>
+
+    <!-- TRIGGERS -->
+    <h2 class="section-title">Scheduled Triggers</h2>
+    <div class="triggers-grid">
+      <div class="trigger-card">
+        <div class="trigger-icon-lg">⏰</div>
+        <div>
+          <div class="trigger-name">Brand Monitor — Daily</div>
+          <div class="trigger-desc">Queries Claude + GPT-4o, sends Slack digest</div>
+          <div class="trigger-cron">0 8 * * * (Amsterdam)</div>
+        </div>
+      </div>
+      <div class="trigger-card">
+        <div class="trigger-icon-lg">📅</div>
+        <div>
+          <div class="trigger-name">Content Guardian — Weekly</div>
+          <div class="trigger-desc">Scores all posts, emails freshness report</div>
+          <div class="trigger-cron">0 7 * * 1 (Monday)</div>
+        </div>
+      </div>
+      <div class="trigger-card">
+        <div class="trigger-icon-lg">🎯</div>
+        <div>
+          <div class="trigger-name">GEO Tracker — Weekly</div>
+          <div class="trigger-desc">LLM visibility snapshot + trend analysis</div>
+          <div class="trigger-cron">0 6 * * 5 (Friday)</div>
+        </div>
+      </div>
+      <div class="trigger-card">
+        <div class="trigger-icon-lg">🚀</div>
+        <div>
+          <div class="trigger-name">Genesis Pipeline — Weekly + On-demand</div>
+          <div class="trigger-desc">Full research + HTML report + email delivery</div>
+          <div class="trigger-cron">0 6 * * 5 + GitHub dispatch</div>
+        </div>
+      </div>
+      <div class="trigger-card">
+        <div class="trigger-icon-lg">⚡</div>
+        <div>
+          <div class="trigger-name">GitHub Actions CI</div>
+          <div class="trigger-desc">Push to main → lint + dry-run all agents</div>
+          <div class="trigger-cron">on: push, pull_request</div>
+        </div>
+      </div>
+      <div class="trigger-card">
+        <div class="trigger-icon-lg">🌐</div>
+        <div>
+          <div class="trigger-name">Manual Dispatch</div>
+          <div class="trigger-desc">Trigger any agent from GitHub Actions UI</div>
+          <div class="trigger-cron">on: workflow_dispatch</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    Built by <a href="https://saikou.tech" target="_blank">Saikou.tech</a> · 
+    <a href="https://github.com/SuperfastSimon/inspace-ai-automation" target="_blank">GitHub</a> · 
+    6 autonomous AI automation concepts · InSpace Application 2026
+  </footer>
+</div>
 
 <!-- RUN MODAL -->
 <div class="modal-overlay" id="runModal">
@@ -384,6 +420,114 @@
 </div>
 
 <script>
+// ===== AUTHENTICATION =====
+// Whitelist of authorized GitHub usernames (edit as needed)
+const AUTHORIZED_USERS = ['SuperfastSimon'];
+
+const CLIENT_ID = 'Ov23liKmEJPqiVijfP1R';
+const REDIRECT = location.href.split('?')[0].split('#')[0];
+const SCOPE = 'read:user';
+const OAUTH_PROXY = 'https://gh-oauth-proxy.superfastsimon.workers.dev';
+
+function showAuthGate() {
+  document.getElementById('authGate').classList.add('show');
+  document.getElementById('dashboardContent').style.display = 'none';
+}
+
+function hideAuthGate() {
+  document.getElementById('authGate').classList.remove('show');
+  document.getElementById('dashboardContent').style.display = 'block';
+}
+
+function showUser(login, avatar) {
+  const badge = document.getElementById('userBadge');
+  document.getElementById('userAvatar').src = avatar;
+  document.getElementById('userName').textContent = login;
+  badge.classList.add('show');
+}
+
+function hideUser() {
+  document.getElementById('userBadge').classList.remove('show');
+}
+
+window.logout = function() {
+  localStorage.removeItem('gh_user');
+  hideUser();
+  showAuthGate();
+};
+
+// Check if already logged in
+const stored = localStorage.getItem('gh_user');
+if (stored) {
+  try {
+    const user = JSON.parse(stored);
+    if (AUTHORIZED_USERS.includes(user.login)) {
+      showUser(user.login, user.avatar_url);
+      hideAuthGate();
+    } else {
+      localStorage.removeItem('gh_user');
+      showAuthGate();
+    }
+  } catch(e) {
+    localStorage.removeItem('gh_user');
+    showAuthGate();
+  }
+} else {
+  showAuthGate();
+}
+
+// Build OAuth URL
+const state = Math.random().toString(36).slice(2);
+sessionStorage.setItem('oauth_state', state);
+document.getElementById('ghLoginBtn').href =
+  `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT)}&scope=${SCOPE}&state=${state}`;
+
+// Handle OAuth callback
+const params = new URLSearchParams(location.search);
+const code = params.get('code');
+
+if (code) {
+  document.getElementById('authStatus').textContent = 'Authenticating…';
+  
+  fetch(`${OAUTH_PROXY}/authenticate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: code, redirect_uri: REDIRECT })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) throw new Error(data.error_description || data.error);
+    const token = data.access_token;
+    if (!token) throw new Error('No token received');
+    return fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  })
+  .then(r => r.json())
+  .then(user => {
+    // Check if user is authorized
+    if (!AUTHORIZED_USERS.includes(user.login)) {
+      document.getElementById('authStatus').textContent = `❌ Access denied for @${user.login}`;
+      setTimeout(() => { history.replaceState({}, '', REDIRECT); }, 2000);
+      return;
+    }
+    
+    localStorage.setItem('gh_user', JSON.stringify({
+      login: user.login,
+      avatar_url: user.avatar_url,
+      id: user.id
+    }));
+    history.replaceState({}, '', REDIRECT);
+    hideAuthGate();
+    showUser(user.login, user.avatar_url);
+  })
+  .catch(error => {
+    console.error('Auth error:', error);
+    document.getElementById('authStatus').textContent = `Error: ${error.message}`;
+  });
+}
+
+// ===== DASHBOARD FUNCTIONS =====
 const ENV_CONFIGS = {
   concept1: `ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
@@ -413,8 +557,8 @@ CATEGORY=AI automation tools
 MY_BRAND=Saikou.tech
 COMPETITORS=make.com,zapier.com,n8n.io`,
   genesis: `ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...        # optional fallback
-JINA_API_KEY=jina_...        # optional, improves rate limits
+OPENAI_API_KEY=sk-...
+JINA_API_KEY=jina_...
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@gmail.com
